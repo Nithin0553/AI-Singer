@@ -1,0 +1,59 @@
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+config.local.json
+storage.local.json
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Frontend
+node_modules/
+.next/
+.nuxt/
+coverage/
+*.tsbuildinfo
+
+# Editor, OS, and logs
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+
+# AI models, audio datasets, downloads, and training artifacts
+models/
+datasets/
+data/
+outputs/
+generated/
+checkpoints/
+training_outputs/
+runs/
+cache/
+.cache/
+wandb/
+mlruns/
+*.ckpt
+*.safetensors
+*.pth
+*.pt
+*.onnx
+*.h5
+*.hdf5
+*.gguf
+*.tflite
