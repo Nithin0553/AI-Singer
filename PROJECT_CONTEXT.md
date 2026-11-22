@@ -2,9 +2,9 @@
 
 > **Persistent handoff:** Read this file at the beginning of each development session. Then inspect current source files and recent Git commits; this document is not a substitute for verification.
 >
-> **Last reviewed:** 2026-11-22 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Documentation-only baseline.
+> **Last reviewed:** 2026-11-22 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Minimal backend scaffold and storage-readiness checks implemented; musical analysis and singing are not implemented.
 >
-> **Verification boundary:** Repository contents/history were checked through GitHub. The developer's actual laptop, Seagate HDD, drive capacity, OS, GPU and installed tooling **have not been inspected**.
+> **Verification boundary:** Repository contents/history were checked through GitHub. Hardware and tool versions below are from **user-provided Windows PowerShell output**; no direct access to or verification on the laptop or external disk.
 
 ## 1. Project Overview
 
@@ -29,24 +29,24 @@ Build a human-directed, interactive AI singing collaborator. The human sings a p
 
 ## 3. Technology Stack
 
-These are **candidates, not installed or implemented integrations**:
+The minimal API backend is implemented with Python and FastAPI; all other technologies remain proposals.
 
-| Layer | Candidate | Why |
+| Layer | Current choice or candidate | Current status |
 | --- | --- | --- |
-| UI | Next.js / React / TypeScript / Tailwind | Recorder, playback, revision controls |
-| Backend | Python / FastAPI / Pydantic | Validated APIs and audio workflow |
-| Agent | LangGraph + evaluated GPT API or Qwen | Understand instructions; plan tool calls and revisions |
-| Speech instructions | faster-whisper or another multilingual ASR | Transcribe Telugu/English speech, subject to validation |
-| Audio | FFmpeg, NumPy, SciPy, librosa | Process files and measure timing/rhythm |
-| Pitch | RMVPE and/or torchcrepe | Measure singing pitch and contours |
-| Singing experiment 1 | RVC-style voice conversion | Attempt to preserve the sung melody in a selected voice |
-| Controlled synthesis candidate | DiffSinger | Later note/phoneme/duration-based edits |
-| Dataset work | Separation tools and OpenVPI dataset utilities | Prepare permitted vocals, lyrics and annotations |
-| Runtime and training | PyTorch, CUDA if available | Models and possible fine-tuning |
-| Persistence later | PostgreSQL plus configured file/object storage | Sessions, takes, audio references |
-| Tests | pytest, frontend tests, CI as code appears | Prevent regressions |
+| UI | Next.js / React / TypeScript / Tailwind | Planned, not installed |
+| Backend | Python 3.12+ / FastAPI / Pydantic / Uvicorn | Minimal health and readiness endpoints implemented |
+| Agent | LangGraph + evaluated GPT API or Qwen | Research proposal; not implemented |
+| Speech instructions | faster-whisper or another multilingual ASR | Not selected or tested for Telugu |
+| Audio | FFmpeg, NumPy, SciPy, librosa | Planned; FFmpeg installation unverified |
+| Pitch | RMVPE and/or torchcrepe | Planned comparative evaluation |
+| First singing experiment | RVC-style voice conversion | Not implemented |
+| Controlled synthesis candidate | DiffSinger | Not implemented |
+| Dataset work | Vocal-separation and OpenVPI tools | Not implemented |
+| Runtime/training | PyTorch, supported NVIDIA CUDA | Not installed/tested on user laptop |
+| Persistence later | PostgreSQL and configured media storage | Not implemented |
+| Testing | pytest, FastAPI TestClient / httpx | 9 backend tests passed in development container |
 
-NVIDIA PersonaPlex is an optional speech interaction research candidate, **not** a proven singing model. Do not choose or download large models until actual hardware, model licenses and evaluation criteria are confirmed.
+NVIDIA PersonaPlex remains a possible research candidate for speech interaction, not an accepted singing model. The RTX 3050 Ti has 4 GiB VRAM, so avoid assuming large models/fine-tuning will run locally.
 
 ## 4. System Architecture
 
@@ -74,22 +74,35 @@ The LLM interprets user intent; analysis tools measure notes and time; singing m
 
 ## 5. Repository Structure
 
-**Verified before setup:** `main` branch only; one initial commit `b863383` (“Initial commit”); one file `README.md` containing `# AI-Singer`. There was no app code, dependency manifest, test, CI configuration, or `PROJECT_CONTEXT.md`.
+**Original baseline:** `main` only, initial commit `b863383`, root `README.md` only.
 
-**Setup commit files:**
-- `README.md`: concise introduction and handoff instructions.
-- `PROJECT_CONTEXT.md`: verified/projected state, architecture, decisions, and next actions.
-- `.gitignore`: excludes credentials, local state, downloaded models, and training/generated artifacts.
+**Now present:**
+- `README.md`: project overview and backend quick start.
+- `PROJECT_CONTEXT.md`: persistent, verified handoff.
+- `.gitignore`: local secrets, model, dataset, cache, and generated asset exclusions.
+- `.env.example`: intentionally blank external-storage root for local configuration.
+- `backend/pyproject.toml`: minimal Python project metadata and development dependencies.
+- `backend/ai_singer/main.py`: FastAPI `/health` and `/ready` routes.
+- `backend/ai_singer/storage.py`: safe validation of `AI_SINGER_STORAGE_ROOT` with no silent internal-disk fallback.
+- `backend/ai_singer/__init__.py`: package marker.
+- `backend/tests/test_api.py`, `backend/tests/test_storage.py`: backend tests.
 
-Directories like `backend/`, `frontend/` and `tests/` are planned **only**, not currently present.
+Folders such as `frontend/`, `models/`, and `datasets/` **do not exist in Git** and should be created only when needed. Model/data directories belong on configured external storage.
 
 ## 6. Development Progress
 
-**Verified:** Existing GitHub repo identified; write permissions, root listing, sole branch, initial commit, and initial README inspected. Documentation and safe Git ignores prepared for the initial setup commit.
+**Completed:**
+- Located and inspected GitHub repository and initial history.
+- Established repository handoff documentation and exclusions; pushed `9eb2048`.
+- Reviewed user-provided Windows OS, disk, GPU and tool-version reports (not directly verified on the laptop).
+- Added minimal FastAPI liveness and external-storage readiness checks with 9 tests; implementation tested in isolated development container.
 
-**Pending environmental verification:** Local OS/version, internal free space, Seagate HDD location/capacity, NVIDIA GPU/VRAM, tool availability.
+**In progress / blocked pending device confirmation:**
+- Identify which disk/volume is the Seagate HDD; reported `D:` volume is 2 TB (exFAT), not the described 1 TB device.
+- Confirm FFmpeg availability and whether the intended external model root exists.
+- Run the backend and tests on the actual Windows laptop.
 
-**Not implemented:** Backend, UI, recording, audio analysis, pitch extraction, singing conversion, model training, dataset pipeline, conversational intelligence, integration tests, deployment.
+**Not implemented:** Frontend, audio capture, pitch or note detection, structured performance, singing generation, agent orchestration, music-memory, fine-tuning, dataset processing, or deployment.
 
 ## 7. Technical Decisions
 
@@ -104,71 +117,120 @@ Directories like `backend/`, `frontend/` and `tests/` are planned **only**, not 
 
 ## 8. Known Issues
 
-- No runnable code exists, so no implementation can yet be tested.
-- Actual Windows/other OS version, free disk space, Seagate drive letters, filesystem, GPU and installed tooling are not yet accessible through this session.
-- Pitch detection can be wrong on slides, vibrato, rests, noisy recordings or unvoiced segments.
-- Telugu singing transcription, expressive quality, model suitability, and low latency remain unproven.
-- No confirmed rights-cleared dataset or authorized voice models.
-- A disconnected external HDD or changing drive letter must produce a clear future error rather than silent writes to the internal disk.
+- The backend performs only process liveness and configured storage-readiness checks; there is no musical feature yet.
+- Seagate disk identity is **unconfirmed**. Windows shows `D:` labeled `Dimpu`, around 2 TB, exFAT. This may or may not be the Seagate device; do not place large assets there until confirmed.
+- `C:` has only ~41 GB free (decimal), limiting on-SSD working sets. NVIDIA RTX 3050 Ti has 4 GiB VRAM; larger models/training may need GPU rental or smaller configurations.
+- FFmpeg not checked, CUDA toolkit and actual PyTorch compatibility not verified. `nvidia-smi` reporting CUDA version 13.3 indicates driver support, **not** that CUDA toolkit is installed.
+- `/ready` checks for a configured, existing, writable folder; it does not create storage paths or verify real device identity. `os.access` is a basic writability hint, not a complete physical write test.
+- Candidate singing model quality, Telugu transcription, latency, pitch accuracy, dataset rights, and synthesis are untested.
+- Initial packaging install in the isolated container required `--no-build-isolation` because the container has no outbound access; normal Windows installation has **not been tested**.
 
 ## 9. Testing and Verification
 
-**Performed during repository setup:** Read GitHub repository metadata, root README, branch, and initial commit; reviewed the three setup documents and checked required handoff sections and ignore coverage. Verify final commit files via GitHub readback.
+**Performed in isolated development container (Python 3.13.5, not the user laptop):**
+- `python -m compileall -q ai_singer` succeeded.
+- `PYTHONPATH=. pytest -q`: **9 passed**. Tests cover `/health`, `/ready`, missing/disconnected storage, relative paths, and valid directories.
+- `python -m pip install -e . --no-build-isolation --no-deps` succeeded using already-installed dependencies; `python -m pytest -q` again yielded **9 passed**.
+- The isolated container could not resolve package-index hosts for a normal build-isolation install, so this does **not** verify fresh dependency installation.
+- GitHub branch and changed-file readback should be checked after this commit.
 
-**Not performed:** Local laptop or HDD inspection; installation; application build; lint/unit/integration tests; GPU/model loading; audio inference; singer-quality evaluation; training. There is no existing application to execute.
+**Not performed:** Windows-local startup/install, FFmpeg checks, actual HDD access, GPU/PyTorch model tests, audio inference, singing tests, fine-tuning.
 
-**For future changes:** Review diff, run relevant tests, inspect exclusions/secrets and asset sizes, then verify the pushed commit and branch head.
+**Future changes:** Review the diff, run applicable tests, check secrets/large assets, and verify the pushed commit and branch head.
 
 ## 10. Development Environment
 
-**Not established.** Collect actual OS version, available internal space, Seagate volume/mount/filesystem/free space, GPU and VRAM, and installed Git/Python/Node/FFmpeg before setting up the machine. Do not request unique serial numbers.
+**Reported by the user from their Windows laptop on 2026-11-22 (not directly inspected):**
 
-If the laptop uses Windows, these are optional **read-only** PowerShell inventory commands:
+| Item | Reported value |
+| --- | --- |
+| OS | Microsoft Windows 11 Home, build `10.0.26300` |
+| GPU | NVIDIA GeForce RTX 3050 Ti Laptop GPU, 4 GiB VRAM; Intel UHD integrated graphics |
+| NVIDIA | driver `610.60`; `nvidia-smi` shows CUDA UMD support `13.3` (CUDA toolkit unverified) |
+| Git | `2.51.0.windows.1` |
+| Python | `3.12.10` |
+| Node.js | `24.11.0` |
+| C: | NTFS, ~335 GB capacity, ~41 GB free |
+| B: | NTFS, `New Volume`, ~152 GB capacity, ~101 GB free |
+| D: | exFAT, `Dimpu`, ~2 TB capacity, ~1.66 TB free |
+
+Other NTFS volumes shown without letters appear to be small system/recovery partitions; do not use them for project storage.
+
+**Critical gap:** User described a Seagate **1 TB** external HDD, but the shown `D:` volume has ~2 TB capacity. Identify the actual Seagate physical disk and its mounted partition(s), without revealing serial numbers or changing/formatting drives. Use read-only PowerShell:
 
 ```powershell
-Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version
-Get-Volume | Select-Object DriveLetter, FileSystemLabel, FileSystem, Size, SizeRemaining
-Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM
-git --version
-python --version
-node --version
+Get-Disk | Select-Object Number, FriendlyName, BusType, Size
+Get-Partition -DriveLetter D | Get-Disk | Select-Object Number, FriendlyName, BusType, Size
+Get-Partition -DriveLetter B | Get-Disk | Select-Object Number, FriendlyName, BusType, Size
 ffmpeg -version
-nvidia-smi
 ```
 
-Nothing can be installed or run from this repository yet. Add only verified install, run, and test commands after implementation.
+**Backend quick start for Windows (not yet verified on laptop):**
+
+```powershell
+git clone https://github.com/Nithin0553/AI-Singer.git
+cd AI-Singer/backend
+python -m venv .venv
+.\\.venv\\Scripts\\python -m pip install -e ".[dev]"
+.\\.venv\\Scripts\\python -m pytest -q
+.\\.venv\\Scripts\\python -m uvicorn ai_singer.main:app --reload
+```
+
+`GET /health` should return `{"status":"ok"}` even when the drive is disconnected. `GET /ready` returns HTTP 503 until `AI_SINGER_STORAGE_ROOT` points to an existing writable directory; this is intentional. Windows commands and dependency installation require verification on the actual laptop.
+
+No model downloads or machine-specific HDD folders have been created.
 
 ## 11. Model and Storage Configuration
 
-**Proposed Seagate structure (not yet created):**
+**External storage root remains UNSELECTED** until a read-only physical disk-to-volume check confirms which drive is the Seagate HDD. Do not assume `D:` is correct or initialize/format anything.
+
+**Proposed structure, not created:**
 
 ```text
 <AI_SINGER_STORAGE_ROOT>/
-  models/{voice_conversion,singing_synthesis,audio_analysis}/
-  datasets/{raw,processed,annotations}/
-  cache/{huggingface,torch}/
-  outputs/{previews,renders}/
-  training/{checkpoints,logs}/
+  models/
+    voice_conversion/
+    singing_synthesis/
+    audio_analysis/
+  datasets/
+    raw/
+    processed/
+    annotations/
+  cache/
+    huggingface/
+    torch/
+  outputs/
+    previews/
+    renders/
+  training/
+    checkpoints/
+    logs/
 ```
 
-Use `AI_SINGER_STORAGE_ROOT` as the root environment variable, never a hardcoded drive letter. Configure `HF_HOME` and `TORCH_HOME` within that root **when model tools have been selected**; confirm each cache is actually redirected. Keep large downloads and training checkpoints on the HDD, and keep source, virtual environments, and latency-sensitive temporary buffers on the faster internal SSD if free space permits. Do not duplicate large model files.
+The backend uses `AI_SINGER_STORAGE_ROOT`. With the variable missing, relative, or pointing at a nonexistent directory, storage readiness fails clearly with HTTP 503; the app never silently defaults to an internal drive. `.env.example` intentionally leaves the value empty and does not auto-load it. After drive identification, set it explicitly in the Windows process environment.
 
-Future startup should verify that the root exists and is writable, fail clearly if the external HDD is missing/remounted, and never silently fall back to an internal-drive default. Local `.env` and settings files must stay untracked. Add a non-secret `.env.example` once actual settings are implemented. Back up irreplaceable consented recordings and annotations separately.
+When selecting model libraries, configure `HF_HOME` and `TORCH_HOME` under this root, verify that each respects the cache setting, and avoid repeated downloads. Keep source and latency-sensitive temporary work on internal SSD where space permits; HDD is slower. Maintain separate backups of irreplaceable recordings, annotations, and rights/consent metadata.
 
 ## 12. Next Steps
 
-1. Collect and verify the real laptop/Seagate storage, OS, GPU and developer toolchain inventory. **Block hardware-dependent configuration until then.**
-2. Choose a minimal Python/toolchain baseline consistent with the inventory; implement backend health/config checks and automated tests.
-3. Build an end-to-end local 5–15-second audio intake → pitch/rhythm/pauses → structured JSON + diagnostic plot experiment.
-4. Verify pitch/timing quality on small permissioned test clips and document errors.
-5. Test licensed male/female singing voice conversion and evaluate audio fidelity, latency, and compute use.
-6. Add LangGraph/LLM interpretation, targeted corrections, approved-take memory and two modes after audio metrics are trustworthy.
-7. Build a rights-cleared Telugu dataset process and evaluate controlled singing synthesis/fine-tuning.
-
-Only mark tasks completed once actually implemented and verified.
+1. **Confirm Seagate HDD physical identity and mount** with read-only PowerShell `Get-Disk` / `Get-Partition` commands above. Check `ffmpeg -version`.
+2. **Run minimal FastAPI backend on Windows** using the tested steps above; record Python 3.12 installation and pytest results. The `/health` endpoint is independent of the external drive.
+3. **Create external folders and configure `AI_SINGER_STORAGE_ROOT` only after confirming correct drive.** Verify that `/ready` transitions from 503 to 200; check disconnect behavior.
+4. Build a focused 5–15-second upload/recording → musical pitch/time/pauses → structured JSON experiment with explicit uncertainty.
+5. Validate on permissioned sample audio, then benchmark male/female singing voice conversion against original pitch and duration.
+6. Implement the conversational music-director agent, approved takes/revisions and two creativity modes.
+7. Build a rights-cleared Telugu dataset pipeline and investigate advanced synthesis/fine-tuning when justified by measurement and hardware cost.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-22. **Starting head:** `b863383` (`main`, “Initial commit”).
+**Date:** 2026-11-22. **Base GitHub commit:** `9eb2048` on `main` (initial documentation).
 
-**Found:** Only initial README; no code or dependencies. **Changed for setup:** README, persistent context, ignore patterns. **Checks:** GitHub content/history inspection and documentation structure checks, not program tests. **Commit:** The commit containing this document (consult `git log -1 --oneline` for its hash; a commit cannot include its own SHA). **Stopping point:** Local device/storage inventory pending; no hardware configuration or development executed. **Resume with:** Priority 1 above.
+**User-provided inventory:** Windows 11 Home, Git 2.51, Python 3.12.10, Node 24.11, RTX 3050 Ti / 4 GiB, driver 610.60. Volumes: `C:` ~41 GB free, `B:` ~101 GB, `D:` ~1.66 TB. Seagate volume identity unresolved because the user described a 1 TB HDD but `D:` is ~2 TB.
+
+**Implementation:** Minimal FastAPI backend with `/health` and storage-aware `/ready`, explicit storage root validation, starter `pyproject.toml`, sample environment variable, and 9 tests.
+
+**Verification:** Python 3.13 isolated container: compileall succeeded, pytest 9/9 passed, editable installation succeeded without build isolation using pre-existing dependencies. Standard isolated install failed only because container package-index access is unavailable. **Not yet verified on the user laptop.**
+
+**Commit:** This GitHub commit (see Git history; the file cannot include its own SHA).
+
+**Stop point:** Remote repository foundations in place; waiting for the disk-to-volume mapping and Windows-local backend test. No large models or datasets downloaded; no Windows disk modifications performed.

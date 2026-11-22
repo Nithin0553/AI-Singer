@@ -22,3 +22,20 @@ There are **no installation or run commands yet**. Before configuring the develo
 ## Repository rules
 
 Keep stable work on `main`; create a short-lived feature branch or PR only when review or isolation adds value. Review changes and tests before pushing. Never commit credentials, recordings, model weights, datasets, caches, or generated outputs. Keep large assets in configurable local storage rather than Git.
+
+## Minimal backend quick start (Windows)
+
+A minimal FastAPI backend now provides `GET /health` (process liveness) and `GET /ready` (requires a configured, available external storage directory). Musical analysis and singing are **not implemented**.
+
+```powershell
+git clone https://github.com/Nithin0553/AI-Singer.git
+cd AI-Singer/backend
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -e ".[dev]"
+.\.venv\Scripts\python -m pytest -q
+.\.venv\Scripts\python -m uvicorn ai_singer.main:app --reload
+```
+
+When the correct external disk and folder are verified, set `AI_SINGER_STORAGE_ROOT` in PowerShell before launching the API, e.g., `$env:AI_SINGER_STORAGE_ROOT = 'X:\AI_Singer'` **after replacing the example with your real location**. Do not use an unverified drive letter or assume that `.env.example` loads automatically. `/ready` intentionally returns HTTP 503 until storage is configured and accessible.
+
+The backend tests passed in the isolated development environment; **Windows-local setup has not yet been verified**. See `PROJECT_CONTEXT.md` for hardware details and next steps.
