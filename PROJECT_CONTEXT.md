@@ -101,7 +101,9 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 
 **Verified from user-provided PowerShell execution:** The repository was cloned successfully to the user's computer, the script's `-Preview` resolved `Dimpu` to `D:\`, and the non-preview run reported `Storage directories created or verified.` The session then printed `AI_SINGER_STORAGE_ROOT = D:\AI_Singer`. These are reported local execution results, not independent filesystem inspection by the assistant.
 
-**Not yet verified on laptop:** Actual directory listing/writes, the other two cache variables, FFmpeg availability, local API installation/tests, and `/ready` response. The GitHub connection cannot directly inspect the user's local files.
+**Verified from user-provided Windows test/server logs:** `python -m pytest -q` reports **9 passed, 1 warning in 0.70 seconds**. Uvicorn started, completed application startup, and served `GET /health` and `GET /ready` with HTTP 200. The readiness success is evidence that the configured storage directory passed the backend's basic readiness validation at that moment.
+
+**Not yet verified on laptop:** Detailed disk write/read behavior, model cache paths, FFmpeg installation, model/GPU runtime, or actual audio processing. The GitHub connection cannot directly inspect the laptop.
 
 **Not implemented:** Audio recording, frontend, pitch/timing analysis, singing generation, conversation agent, model downloads, training, dataset pipeline or deployment.
 
@@ -126,6 +128,8 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 - `C:` has ~41 GB free, and GPU is RTX 3050 Ti with 4 GiB VRAM. Large models or training may require smaller configurations or cloud compute.
 - Actual FFmpeg installation, CUDA toolkit and PyTorch runtime are unverified. `nvidia-smi` CUDA support does not verify toolkit installation.
 - `/ready` currently checks an existing absolute writable folder and does not independently prove physical drive identity; rerun the label-based script after reconnecting the HDD, and never rely on an old path.
+- Windows pytest reported one `StarletteDeprecationWarning`: importing `fastapi.testclient` warns that `httpx` with `starlette.testclient` is deprecated and suggests `httpx2`. This is nonfatal; inspect actual versions and upstream guidance before changing dependencies.
+- An incidental `GET /favicon.ico` returned HTTP 404 while browsing API endpoints; there is no frontend/favicon yet, and it is not a failed API health check.
 - End-to-end audio quality, expressive singing, Telugu interpretation, model compatibility, dataset rights and latency remain untested.
 
 ## 9. Testing and Verification
@@ -136,7 +140,7 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 - A previous editable installation with preinstalled dependencies passed; fresh dependency installation on the user's Windows environment remains untested.
 - Label-based PowerShell initializer reviewed for non-destructive operations, explicit preview, and session-only environment settings. **It cannot be executed or functionally tested on Windows from this environment** because no Windows PowerShell runtime or attached Seagate drive is available.
 
-**Reported successful by user from Windows PowerShell:** Clone, read-only storage preview, actual storage initializer, and current-session `AI_SINGER_STORAGE_ROOT` value. The script reported successful folder creation. **Not performed/verified:** independent HDD folder listing and write check, local package installation, FFmpeg check, running API, real GPU/model load, singing test, or training. Read back GitHub commit and branch after push.
+**Reported successful by user from Windows PowerShell:** Clone, storage preview, actual storage initializer, and current-session `AI_SINGER_STORAGE_ROOT` value. Python 3.12 virtual-environment backend pytest run: **9 passed, 1 warning in 0.70 seconds**; Uvicorn started successfully at `http://127.0.0.1:8000`, with `GET /health` **200** and `GET /ready` **200** in server logs. The test warning originates in FastAPI TestClient / Starlette and does not fail tests. **Not performed/verified:** independent HDD file write/read, FFmpeg, real GPU/model load, singing test, or training. HTTP response bodies were not included in the shared logs.
 
 ## 10. Development Environment
 
@@ -166,7 +170,7 @@ $env:TORCH_HOME
 
 The first command only displays a preview; the second creates folders and sets three variables for the **current PowerShell session**. It does not change global machine/user environment variables, format the drive, or download models.
 
-**Backend (same PowerShell terminal, not yet tested on user's laptop):**
+**Backend (tested successfully on user's Windows laptop, per user-provided logs):**
 
 ```powershell
 cd backend
@@ -178,7 +182,7 @@ python -m venv .venv
 
 In a separate terminal, `Invoke-RestMethod http://127.0.0.1:8000/health` should show `ok`, and `Invoke-RestMethod http://127.0.0.1:8000/ready` should show `ready` when the drive folder is available.
 
-Check `ffmpeg -version` when convenient. New PowerShell terminals require rerunning `Initialize-Storage.ps1` (even if folders already exist). Do not claim that Windows setup passed until results are reported.
+Windows pytest, Uvicorn startup, and both endpoint HTTP 200 statuses have been reported successfully. Check `ffmpeg -version` next. New PowerShell terminals require rerunning `Initialize-Storage.ps1` (even if folders already exist).
 
 ## 11. Model and Storage Configuration
 
@@ -213,26 +217,24 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. **Next:** In the same Windows PowerShell session, confirm the expected cache variables and the project folder with `Test-Path $env:AI_SINGER_STORAGE_ROOT`, then install backend dev dependencies and run pytest. If using a new terminal, rerun `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'` first.
-2. Launch the backend and verify `/health` and `/ready` on Windows. Record any install/test errors and investigate without moving large dependencies onto the HDD.
-3. Confirm FFmpeg availability with `ffmpeg -version`. Evaluate external-drive cache behavior before any large model download.
-4. Implement a minimal 5–15-second audio intake → measured pitch/time/pauses → structured JSON and diagnostic plot experiment.
-5. Validate with permissioned short samples, then measure pitch/rhythm fidelity and latency of candidate male/female singing conversion.
-6. Add conversational agent, targeted musical corrections, Director/Collaborative modes and versioned takes.
-7. Build a rights-cleared Telugu dataset and investigate controllable synthesis/fine-tuning based on measured need and available GPU resources.
+1. **Next:** Confirm `ffmpeg -version` and inspect the Windows test warning's installed package versions if it persists. Avoid needless upgrades while the current backend is working.
+2. Confirm `$env:HF_HOME` and `$env:TORCH_HOME` in the configured shell; optionally validate a small temporary file read/write on Seagate without downloading models. Record actual exFAT cache behavior before large downloads.
+3. Implement a focused, safe 5–15-second completed-audio input → pitch, timing and pause estimates → structured JSON and diagnostic output experiment; design low-confidence/invalid-input handling and tests.
+4. Validate the analyzer on short, consented known-reference audio and record measured errors.
+5. Evaluate licensed male/female singing voice-conversion candidates with the 4 GiB GPU constraints, reporting quality, latency and resource use.
+6. Build the conversational music-director agent, targeted revisions, approved-take memory and Director/Collaborative modes.
+7. Prepare a rights-cleared Telugu dataset and experiment with controllable synthesis/fine-tuning only when justified by measurements.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-22. **Starting GitHub commit:** `8258f98` on `main`.
+**Date:** 2026-11-22. **Starting commit:** `0b68f26` on `main`.
 
-**Local result reported by user:** Successfully cloned `Nithin0553/AI-Singer` to `C:\Users\nithi\AI-Singer`. Ran `Initialize-Storage.ps1 -VolumeLabel 'Dimpu' -Preview`; PowerShell located the confirmed Seagate exFAT drive at `D:\` and displayed the intended directory list without modifying anything. The subsequent non-preview run reported `Storage directories created or verified.` Finally, `$env:AI_SINGER_STORAGE_ROOT` returned `D:\AI_Singer`.
+**Windows verification reported by user:** Backend tests ran in `C:\Users\nithi\AI-Singer\backend`: `9 passed, 1 warning in 0.70s`. Uvicorn `--reload` launched on `127.0.0.1:8000`, server startup completed, and requests to `/health` and `/ready` both returned **HTTP 200**. No HTTP response bodies were supplied. The reported storage-readiness 200 means the current backend validator accepted the configured storage path at request time.
 
-**Updated status:** Storage initialization **reported successful on the user's Windows machine**. It is not independently filesystem-verified by ChatGPT. Other cache variables were set by script but their values were not printed by the user. No models or datasets were downloaded.
+**Warning:** `StarletteDeprecationWarning` from `fastapi.testclient` suggesting `httpx2` in place of `httpx`. Nonfatal; investigate package compatibility before changing dependency pins. An automatic `/favicon.ico` request returned 404; expected for an API without a website icon.
 
-**Changes in this session:** Updated this handoff to reflect the actual Windows storage-setup results; no application code changes.
+**Changes this session:** Documentation-only update to reflect Windows-local backend success. No application code, dependency versions or assets were changed. GitHub commit is the revision containing this file (see Git history).
 
-**Testing:** No new application tests. Existing 9 backend tests previously passed in isolated development environment. **Windows backend tests, service startup and FFmpeg remain pending.**
+**Not yet verified:** FFmpeg, physical HDD read/write tests, actual model cache creation, GPU inference, singing audio, or musical analysis.
 
-**Commit:** Use Git history to identify the commit containing this document.
-
-**Stop point / exact next task:** Run `Test-Path $env:AI_SINGER_STORAGE_ROOT`, verify `$env:HF_HOME` and `$env:TORCH_HOME`, then run the Windows backend install, pytest and `/health` + `/ready` checks. Do not begin large downloads before confirming cache paths.
+**Stop point / exact next task:** Confirm FFmpeg and optional cache locations, then implement the first measured musical-understanding/audio-input experiment with tests. The prior backend foundation and storage setup are now user-verified; don't repeat setup unnecessarily.
