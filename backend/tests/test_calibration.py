@@ -118,3 +118,14 @@ def test_reference_slide_is_progressive_and_not_labeled_as_fixed_note() -> None:
     assert 60 < at(3.46) < at(3.86) < 62
     for span in reference["segments"]:
         assert span["end_seconds"] <= 3.35 or span["start_seconds"] >= 4.20
+
+
+def test_synthetic_calibration_event_grouping_keeps_c4_and_d4():
+    """Regression for the previously merged C4 -> glide -> D4 passage."""
+    samples, _ = generate_calibration()
+    result = analyze_audio(samples)
+    mids = [event["midi_note"] for event in result["note_events"]]
+    assert mids == [57, 60, 62, 57]
+    assert any(item["classification"] == "glide_candidate"
+               and item["start_seconds"] < 3.8 < item["end_seconds"]
+               for item in result["pitch_transitions"])

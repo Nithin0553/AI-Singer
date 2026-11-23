@@ -132,3 +132,41 @@ def test_compare_with_mock_model(monkeypatch,tmp_path):
 def test_compare_rejects_invalid_audio():
     response=TestClient(app).post("/compare",files={"file":("a.wav",b"bad","audio/wav")})
     assert response.status_code == 422
+
+
+def test_slow_two_semitone_glide_preserves_both_plateaus():
+    """A gentle continuous slide is not a sustained intermediate note."""
+    pitch = np.r_[np.full(63, 60.), np.linspace(60, 62, 43), np.full(63, 62.)]
+    original = pitch.copy()
+    events = segment_pitch(pitch, STEP, pitch.size * STEP)
+    assert [note["midi_note"] for note in events.notes] == [60, 62]
+    assert any(
+        item["classification"] == "glide_candidate"
+        and item["pitch_change_semitones"] >= 0.7
+        and item["start_seconds"] < 1.8 < item["end_seconds"]
+        for item in events.transitions
+    )
+    assert np.array_equal(pitch, original)
+
+
+def test_descending_slow_glide_preserves_both_plateaus():
+    pitch = np.r_[np.full(63, 62.), np.linspace(62, 60, 43), np.full(63, 60.)]
+    events = segment_pitch(pitch, STEP, pitch.size * STEP)
+    assert [note["midi_note"] for note in events.notes] == [62, 60]
+    assert any(item["classification"] == "glide_candidate"
+               and item["pitch_change_semitones"] < -0.7 for item in events.transitions)
+
+
+def test_actual_sustained_middle_semitone_is_preserved():
+    """A genuinely held C-sharp must survive between C and D."""
+    pitch = np.r_[np.full(65, 60.), np.linspace(60, 61, 10),
+                  np.full(50, 61.), np.linspace(61, 62, 10), np.full(65, 62.)]
+    events = segment_pitch(pitch, STEP, pitch.size * STEP)
+    assert [note["midi_note"] for note in events.notes] == [60, 61, 62]
+
+
+def test_gentle_vibrato_keeps_one_stable_note():
+    t = np.arange(125) * STEP
+    pitch = 60 + 0.22 * np.sin(2 * np.pi * 5 * t)
+    events = segment_pitch(pitch, STEP, pitch.size * STEP)
+    assert [note["midi_note"] for note in events.notes] == [60]

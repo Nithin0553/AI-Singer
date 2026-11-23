@@ -170,3 +170,9 @@ The command writes **only to the configured external storage** at `outputs/previ
 Without `--compare`, it generates the audio/reference without loading RMVPE. It does not download weights. Existing audio/reference files are reused; use `--overwrite` only when explicitly regenerating. The script refuses to fall back to an unconfigured internal drive.
 
 **Important:** A strong synthetic benchmark score is not evidence of accuracy on **human singing**. For that next test, independently annotate pitches and note timings actually sung rather than scoring a human recording against these synthetic timestamps.
+
+### Slow-glide interpretation fix
+
+The original pitch detector remains unchanged. Musical event grouping now checks pitch movement over a longer interval as well as local stability, so a gentle C4-to-D4 slide is not mislabeled as one long C♯4. Both estimators' uploaded calibration tracks now produce **A3, C4, D4, A3** stable cores with an intervening upward glide candidate. Events are still *approximate*, not confirmed notes or onsets in human performances. No weights or new dependencies are required.
+
+To verify the change locally, run `git pull --ff-only`, then `.\\.venv\\Scripts\\python -m pytest -q` from `backend/`; restart the API before rerunning Pitch Lab. The exact Windows test result for this fix remains pending.

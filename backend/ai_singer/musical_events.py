@@ -11,6 +11,9 @@ from scipy.ndimage import median_filter
 MIN_NOTE_FRAMES = 6
 MIN_TRANSITION_FRAMES = 5
 OCTAVE_TOLERANCE = 1.5
+STABLE_LOCAL_RANGE = 0.65  # semitones within the short window
+STABLE_TREND_CHANGE = 0.5  # maximum median drift across a longer window
+TREND_RADIUS_SECONDS = 0.24
 
 
 @dataclass(frozen=True)
@@ -84,11 +87,21 @@ def segment_pitch(midi: np.ndarray, step: float, duration: float) -> MelodicEven
         smoothed[begin:end] = median_filter(grouping[begin:end], size=5, mode="nearest")
 
     stable = np.zeros(n, dtype=bool)
-    radius = 4
+    radius = 4  # 180 ms local window on the usual 20 ms grid.
+    trend_radius = max(radius + 1, round(TREND_RADIUS_SECONDS / step))
     for begin, end in _runs(np.isfinite(smoothed)):
         for j in range(begin, end):
-            window = smoothed[max(begin, j - radius):min(end, j + radius + 1)]
-            if len(window) >= 5 and np.ptp(window) <= 0.65:
+            left, right = max(begin, j - radius), min(end, j + radius + 1)
+            window = smoothed[left:right]
+            if len(window) < 5 or np.ptp(window) > STABLE_LOCAL_RANGE:
+                continue
+
+            # Slow glides look flat within 180 ms. Median pitches at the
+            # ends of a longer interval reveal drift but tolerate vibrato.
+            trend = smoothed[max(begin, j - trend_radius):min(end, j + trend_radius + 1)]
+            count = max(2, len(trend) // 3)
+            drift = abs(float(np.median(trend[-count:]) - np.median(trend[:count])))
+            if drift <= STABLE_TREND_CHANGE:
                 stable[j] = True
 
     stable_cores: list[tuple[int, int, int]] = []
