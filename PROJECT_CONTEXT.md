@@ -128,7 +128,7 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 - `Get-Volume` volume-label lookup is Windows-specific; it intentionally fails on missing or ambiguous labels rather than writing to an unintended drive.
 - Because `D:` uses **exFAT**, some model caches or tools may have limitations with symlinks and permissions. Confirm compatibility and model loading before major downloads.
 - `C:` has ~41 GB free, and GPU is RTX 3050 Ti with 4 GiB VRAM. Large models or training may require smaller configurations or cloud compute.
-- FFmpeg CLI unavailable in the user's Windows PowerShell (`CommandNotFoundException`). Install or locate it and verify in a fresh terminal. CUDA toolkit and PyTorch runtime remain unverified; `nvidia-smi` CUDA support does not establish a toolkit installation.
+- WinGet v1.29.380 reported successfully installing **Gyan.FFmpeg 9.1** (252 MB downloaded, hash verified, archive extracted, PATH modified, command aliases created). In the **same existing PowerShell process**, `ffmpeg -version` and `ffprobe -version` still returned `CommandNotFoundException`. A new terminal has not yet been used to verify PATH activation or command execution. CUDA toolkit/PyTorch runtime are still unverified; `nvidia-smi` CUDA support does not establish toolkit installation.
 - `/ready` currently checks an existing absolute writable folder and does not independently prove physical drive identity; rerun the label-based script after reconnecting the HDD, and never rely on an old path.
 - Windows pytest reported one `StarletteDeprecationWarning`: importing `fastapi.testclient` warns that `httpx` with `starlette.testclient` is deprecated and suggests `httpx2`. This is nonfatal; inspect actual versions and upstream guidance before changing dependencies.
 - An incidental `GET /favicon.ico` returned HTTP 404 while browsing API endpoints; there is no frontend/favicon yet, and it is not a failed API health check.
@@ -219,7 +219,7 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. **Next:** Resolve FFmpeg CLI availability on Windows. The user's `ffmpeg -version` returned `CommandNotFoundException`; first confirm `winget --version`, then install `Gyan.FFmpeg` if available. Restart PowerShell and verify both `ffmpeg -version` and `ffprobe -version`. Do not claim it installed until output confirms it.
+1. **Next:** WinGet successfully reported installing FFmpeg 9.1, but the old PowerShell session still cannot find `ffmpeg` or `ffprobe`. **Close the old PowerShell window, launch a new one**, and run `ffmpeg -version` and `ffprobe -version`. If unavailable then, use `winget list --id Gyan.FFmpeg --exact` and `Get-Command ffmpeg -All` to diagnose PATH. Do not reinstall prematurely.
 2. Confirm `$env:HF_HOME` and `$env:TORCH_HOME` in the configured shell; optionally validate a small temporary file read/write on Seagate without downloading models. Record actual exFAT cache behavior before large downloads.
 3. Implement a focused, safe 5–15-second completed-audio input → pitch, timing and pause estimates → structured JSON and diagnostic output experiment; design low-confidence/invalid-input handling and tests.
 4. Validate the analyzer on short, consented known-reference audio and record measured errors.
@@ -229,14 +229,14 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-22. **Starting commit:** `c6f9151` on `main`.
+**Date:** 2026-11-22. **Starting commit:** `981c3e0` on `main`.
 
-**Prior Windows checks (reported by user):** Backend pytest 9 passed (1 nonfatal warning); Uvicorn started; `/health` and `/ready` responded HTTP 200. Seagate volume `Dimpu` was initialized at `D:\AI_Singer` according to PowerShell.
+**User-reported Windows package installation:** `winget --version` returned `v1.29.380`. `winget install --id Gyan.FFmpeg --exact --source winget` found **FFmpeg 9.1**, downloaded a 252 MB ZIP, verified the installer hash, extracted it, modified PATH, added `ffmpeg` / `ffplay` / `ffprobe` aliases, and reported **Successfully installed**.
 
-**New issue reported by user:** Running `ffmpeg -version` in Windows PowerShell produced `CommandNotFoundException` (`ffmpeg` is not recognized). This indicates FFmpeg is unavailable through that shell, but does not establish whether it is missing or simply not on PATH.
+**Remaining environment issue:** Immediately after installation in the **original PowerShell window**, both `ffmpeg -version` and `ffprobe -version` returned `CommandNotFoundException`. WinGet instructed a shell restart. These failures do not establish an unsuccessful installation; the current process's PATH likely predates the change. Fresh-shell checks have not yet been reported.
 
-**Changes:** Documentation-only update recording the blocker and suggested WinGet installation and validation. No remote installation or code changes; identify this document update by its Git history.
+**Changes:** Documentation-only update. No code, dependencies or installed tools were modified remotely. Identify this documentation commit from Git history.
 
-**Testing:** No new app tests; prior Windows results remain valid. FFmpeg installation and functional validation are still pending.
+**Previously confirmed:** Windows backend tests 9 passed (1 warning); Uvicorn started; `/health` and `/ready` both returned HTTP 200. Seagate `Dimpu` storage root was initialized on `D:`.
 
-**Next:** Check `winget --version`; if available use `winget install --id Gyan.FFmpeg --exact --source winget`. Open a new terminal; verify `ffmpeg -version` and `ffprobe -version`. Re-run `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'` in that new session before using the backend and model caches.
+**Next task:** User closes the old PowerShell window, opens a new one, checks `ffmpeg -version` and `ffprobe -version`, and runs `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'` to configure current-session cache paths. If the commands still fail, inspect `winget list --id Gyan.FFmpeg --exact` and `Get-Command ffmpeg -All` before changing PATH. Continue with musical analysis only once FFmpeg can be run.
