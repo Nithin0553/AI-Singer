@@ -2,7 +2,7 @@
 
 > **Persistent handoff:** Read this file at the beginning of each development session. Then inspect current source files and recent Git commits; this document is not a substitute for verification.
 >
-> **Last reviewed:** 2026-11-23 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Windows Pitch Lab and two-estimator comparison verified; 68 tests passed on user's Windows laptop. Ground-truth pitch/note accuracy and click-to-seek remain unverified.
+> **Last reviewed:** 2026-11-23 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Windows Pitch Lab and two-estimator comparison verified; 68 tests passed on user's Windows laptop. Ground-truth pitch/note accuracy remains unverified; chart click-to-seek has been user-verified.
 >
 > **Verification boundary:** Repository contents/history were checked through GitHub. Hardware and tool versions below are from **user-provided Windows PowerShell output**; no direct access to or verification on the laptop or external disk.
 
@@ -104,7 +104,7 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 - `POST /compare` invokes both estimators; CPU runtime may be >10 seconds on this laptop. No request queue, concurrent-user throttling, or broader production security hardening has been implemented. The browser page should be run locally only.
 - `pitch_validation.py` requires trusted, separately annotated notes/rests. Example JSON is a *format illustration*, not evidence. Unannotated time is excluded.
 - An existing client relying on the previous quantized `note_events` count must be updated; new classification deliberately returns fewer stable cores.
-- Browser Pitch Lab rendered and `/compare` succeeded in the latest Windows run; 68/68 tests passed. The screenshot displays audio playback controls but does not prove synchronized seek behavior. The user has not provided the original audio bytes here, so no perceptual assessment or independent note-onset verification is possible.
+- Browser Pitch Lab rendered and `/compare` succeeded in the latest Windows run; 68/68 tests passed. The user subsequently confirmed clicking the red 8.9-second graph region seeks the audio player to that point, verifying seek behavior but not perceptual accuracy. The user has not provided the original audio bytes here, so no perceptual assessment or independent note-onset verification is possible.
 - Seagate exFAT symlink/cache behavior remains a possible limitation. Model licensing still needs user review before production.
 
 ## 9. Testing and Verification
@@ -118,7 +118,7 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 
 **Windows acceptance supplied by user (2026-11-23):** `pytest -q` in the existing backend virtual environment reported **68 passed in 7.62 s**. Uvicorn started successfully; `GET /pitch-lab` returned HTTP 200, and `POST /compare` returned HTTP 200. A `GET /favicon.ico` request returned expected HTTP 404 because there is no favicon. The attached screenshot shows both estimator traces, green stable pitch cores, red review span, audio player and summary statistics. The supplied JSON confirms comparison values and note/event summary. The screenshot does not independently verify click-to-seek playback synchronization.
 
-**Still not verified:** Browser plot-click seeks to the matching audio time, ground-truth note/onset accuracy, correct interpretation of slides and ornaments, reliable latency across repeated runs, singing synthesis and live dialogue.
+**User-verified UI behavior:** Clicking the red region around 8.9 seconds moves the browser audio player to that point. **Still not verified:** independently listening to the recording, ground-truth note/onset accuracy, correct interpretation of slides and ornaments, repeated-run latency, singing synthesis and live dialogue.
 
 ## 10. Development Environment
 
@@ -144,24 +144,20 @@ Continue to use `AI_SINGER_STORAGE_ROOT` pointing to Seagate `Dimpu` (currently 
 
 ## 12. Next Steps
 
-1. **Windows smoke testing now substantially complete:** `pytest -q` returned **68 passed**, and `/pitch-lab` and `/compare` returned HTTP 200; screenshot verifies chart rendering. One manual interaction check remains: click the chart around 8.9 seconds, confirm the player seeks there and the original voice can be listened to at that spot.
-2. **Inspect octave discrepancy with the original audio:** Visually and by listening, assess the marked 8.90–8.96-second region. YIN has one suspected octave excursion; RMVPE has zero, but that does not prove RMVPE is correct.
+1. **Windows browser interaction verified:** User confirms clicking the red 8.9-second review region seeks the audio player to that time. Listen at that point to judge YIN's octave-drop estimate; no automatic correction.
+2. **Ground-truth musical accuracy:** Record a few short, independently annotated notes, rests and slides with actual pitches and note times; run the existing `pitch_validation` tool on YIN/RMVPE comparisons. Model agreement does not establish correctness.
 3. **Ground-truth musical accuracy:** Record or provide a few permissioned clear notes, rests and slides with independent note/time labels. Run `pitch_validation` and compare true error (cents, voicing, octave problems) between YIN and RMVPE.
 4. Refine transition and note-boundary logic using measured annotations and real expressive Telugu singing; do not prematurely adopt detected stable cores as score notes.
 5. Only after acceptable musical measurements proceed to authorized singing voice-conversion experiments, language understanding, and Director/Collaborative agent integration.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-23. **Starting main commit:** `7f1279c9` (stable-pitch review and local Pitch Lab).
+**Date:** 2026-11-23. **Starting commit:** `97d2e9d` on `main`.
 
-**User-provided Windows acceptance:** The user ran `.\.venv\Scripts\python -m pytest -q` and obtained **68 passed in 7.62 s** (no warning shown in the supplied excerpt). Uvicorn started successfully; `GET /pitch-lab` returned **HTTP 200**, and `POST /compare` returned **HTTP 200**. `GET /favicon.ico` returned benign 404. Screenshot shows the original `Test 1.m4a` selected in Pitch Lab, graph overlay with YIN and RMVPE traces, stable-pitch cores and a red review interval, and browser audio controls.
+**New Windows behavior verified by user:** Clicking the red review region near 8.9 seconds in Pitch Lab makes the audio player jump to that moment. Chart-to-player seeking therefore works on the user's machine. This does not verify that the suspected YIN octave error is wrong, or verify note transcription accuracy.
 
-**New report inspected from upload:** `ai-singer-pitch-report.json`, duration **9.195 s**; 460 frames, YIN voiced 390, RMVPE voiced 393, shared 388; 11-cent median absolute model disagreement. Single cross-estimator octave-like review interval `8.90–8.96 s`, median 1,189 cents, 3 frames. YIN stable cores 13, RMVPE stable cores 10, YIN octave candidates 1, RMVPE octave candidates 0. UI shows RMVPE's 12 pitch movement regions. The selected RMVPE view correctly shows **0 internal octave candidates** while the comparison correctly shows **1 cross-estimator disagreement interval**.
+**Previously verified:** 68 Windows tests passed, `GET /pitch-lab` and `POST /compare` HTTP 200, plotted YIN/RMVPE curves and stable cores, and real RMVPE inference on 9.195-second recording. The model disagreement around 8.90–8.96 seconds remains flagged for review.
 
-**Timing caveat:** This run measured **YIN 2.830 s; RMVPE 5.121 s**, compared with the earlier run's YIN 11.342 s; RMVPE 2.102 s. No steady-state timing conclusion is warranted without repeated controlled runs.
+**Changes:** Documentation-only update of user-verified click-to-seek behavior and remaining milestones; no source/model/storage changes.
 
-**What is actually verified:** Backend full test suite on Windows, successful real comparison API, functioning graph rendering with user-loaded file, real ONNX inference and exported JSON. **Not verified:** click-to-seek playback synchronization, listener assessment of the 8.9-second passage, actual intended pitch and note onset times, or musical fidelity against a known score. No raw audio was attached to ChatGPT, only the screenshot and report.
-
-**Changes this session:** Documentation-only handoff update recording the user-verified results and next priorities. No application code, model weights, datasets or storage settings changed; inspect Git history for the documentation commit.
-
-**Exact next task:** Manually check clicking the graph seeks the audio to 8.9 seconds; listen to decide whether the YIN octave-down region reflects the sung note. Then record or select 2–3 rights-cleared controlled phrases with known notes and rests, annotate their actual note times, run `python -m ai_singer.pitch_validation <benchmark.json> <reference.json>` and compare objective pitch/voicing errors before further segmentation changes.
+**Next task:** Listen to the original audio at the review region, then evaluate the analyzer against independently annotated reference notes/rests using `pitch_validation` before modifying segmentation logic or moving to singing generation.
