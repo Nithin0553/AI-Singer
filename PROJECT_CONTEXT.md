@@ -2,7 +2,7 @@
 
 > **Persistent handoff:** Read this file at the beginning of each development session. Then inspect current source files and recent Git commits; this document is not a substitute for verification.
 >
-> **Last reviewed:** 2026-11-22 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Minimal backend scaffold and storage-readiness checks implemented; musical analysis and singing are not implemented.
+> **Last reviewed:** 2026-11-22 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Stage 1 CPU-only musical analysis endpoint implemented and tested with synthetic audio; no user-voice or singing model evaluation yet.
 >
 > **Verification boundary:** Repository contents/history were checked through GitHub. Hardware and tool versions below are from **user-provided Windows PowerShell output**; no direct access to or verification on the laptop or external disk.
 
@@ -29,85 +29,78 @@ Build a human-directed, interactive AI singing collaborator. The human sings a p
 
 ## 3. Technology Stack
 
-The minimal API backend is implemented with Python and FastAPI; all other technologies remain proposals.
+**Implemented:** Python FastAPI backend, external-storage readiness, FFmpeg audio decoding, NumPy/librosa/SciPy pitch-baseline processing, and automated pytest checks.
 
-| Layer | Current choice or candidate | Current status |
+| Layer | Current choice / candidate | Status |
 | --- | --- | --- |
-| UI | Next.js / React / TypeScript / Tailwind | Planned, not installed |
-| Backend | Python 3.12+ / FastAPI / Pydantic / Uvicorn | Minimal health and readiness endpoints implemented |
-| Agent | LangGraph + evaluated GPT API or Qwen | Research proposal; not implemented |
-| Speech instructions | faster-whisper or another multilingual ASR | Not selected or tested for Telugu |
-| Audio | FFmpeg, NumPy, SciPy, librosa | Planned; `ffmpeg` not found in the user's current Windows PowerShell PATH |
-| Pitch | RMVPE and/or torchcrepe | Planned comparative evaluation |
-| First singing experiment | RVC-style voice conversion | Not implemented |
-| Controlled synthesis candidate | DiffSinger | Not implemented |
-| Dataset work | Vocal-separation and OpenVPI tools | Not implemented |
-| Runtime/training | PyTorch, supported NVIDIA CUDA | Not installed/tested on user laptop |
-| Persistence later | PostgreSQL and configured media storage | Not implemented |
-| Testing | pytest, FastAPI TestClient / httpx | 9 backend tests passed in development container |
+| UI | Next.js, React, TypeScript, Tailwind | Not implemented; use FastAPI Swagger `/docs` to submit trial recordings |
+| API | Python >=3.12, FastAPI, Uvicorn, python-multipart | `/health`, `/ready`, `POST /analyze` implemented |
+| Decode | FFmpeg CLI | 9.1/ffprobe 9.1 verified running in fresh Windows PowerShell |
+| Pitch prototype | NumPy, librosa YIN, SciPy median filter | CPU-only implementation; tests use generated tones, silence and noise |
+| Agent | LangGraph + GPT or Qwen | Later evaluation; not implemented |
+| Spoken corrections | Multilingual ASR, possibly faster-whisper | Not implemented or benchmarked for Telugu |
+| Advanced audio | RMVPE / torchcrepe | Later pitch comparison, not installed |
+| Voice conversion | Permissioned RVC-type singing voices | Later experiment, not implemented |
+| Controlled singing | DiffSinger candidate | Later experiment, not implemented |
+| Data/training | PyTorch, permitted vocals, alignment and dataset tools | Not implemented |
+| Persistence | Versioned takes, PostgreSQL and external media storage | Not implemented |
 
-NVIDIA PersonaPlex remains a possible research candidate for speech interaction, not an accepted singing model. The RTX 3050 Ti has 4 GiB VRAM, so avoid assuming large models/fine-tuning will run locally.
+The Windows GPU is RTX 3050 Ti with 4 GiB VRAM. This prototype is CPU-only and does not download model weights.
 
 ## 4. System Architecture
 
-**Proposed, not implemented:**
+**Implemented today:**
 
 ```text
-Studio recorder + spoken/text instructions
-                  |
-       FastAPI session/backend
-                  |
-    Preprocess + musical measurements
-                  |
-   Structured performance representation
-                  |
-   Reasoning agent + revision/version state
-                  |
-     Singing conversion / synthesis
-                  |
-  Objective comparison + listenable audio
-                  |
-    Director feedback -> new version
+Finished short vocal file (WAV/MP3/WebM etc. supported by FFmpeg)
+            |
+    POST /analyze (FastAPI)
+            |
+   Size + duration validation
+            |
+ FFmpeg -> 16 kHz mono float PCM (in memory)
+            |
+ librosa YIN fundamental pitch estimate
+ RMS silence check + periodicity gate
+            |
+ Frame-by-frame pitch & MIDI values
+ Candidate steady notes + quiet intervals
+            |
+        JSON response
 ```
 
-The LLM interprets user intent; analysis tools measure notes and time; singing models render audio. The agent cannot claim a successful match without independent measurement or human confirmation. Keep user-approved takes immutable unless explicitly superseded.
+Audio duration must be 1–15 seconds, upload payload <=10 MiB. Decode is capped at 16 seconds and has a 30-second subprocess timeout. No AI weights or GPU required. The source audio is not intentionally saved to project storage by the endpoint (request handling may use framework temporary files).
+
+**Future, unimplemented:** Browser capture, agent reasoning, sung-lyrics recognition, music-aware correction, singing voice conversion/synthesis, fidelity comparisons, take history and studio UI. The LLM must not replace audio measurements; approved takes must remain reversible.
 
 ## 5. Repository Structure
 
-**Original baseline:** `main` only, initial commit `b863383` with a single README.
+- `README.md`: project overview, Windows storage/API setup, and first analyzer trial.
+- `PROJECT_CONTEXT.md`: handoff, verified state and next actions.
+- `.gitignore`, `.env.example`: local secrets, models, caches and drive configuration.
+- `scripts/Initialize-Storage.ps1`: discovers Seagate `Dimpu` by volume label and sets current-shell paths.
+- `backend/pyproject.toml`: backend dependencies; adds `python-multipart`, NumPy, SciPy and librosa.
+- `backend/ai_singer/main.py`: `GET /health`, `GET /ready`, `POST /analyze`.
+- `backend/ai_singer/audio_analysis.py`: FFmpeg decode, pitch and RMS analysis, candidate note/quiet intervals.
+- `backend/ai_singer/storage.py`: external storage path validation.
+- `backend/tests/test_api.py`, `backend/tests/test_storage.py`: original 9 API/storage tests.
+- `backend/tests/test_audio_analysis.py`: synthetic pitch, notes, silence/noise, duration/size, invalid upload and decoder-failure tests.
 
-**Current repository files:**
-- `README.md`: project overview, Windows quick start and Seagate storage setup.
-- `PROJECT_CONTEXT.md`: persistent handoff, verified and proposed state.
-- `.gitignore`: excludes local secrets, large models, datasets, caches and generated assets.
-- `.env.example`: non-secret external-storage configuration placeholder; not auto-loaded.
-- `scripts/Initialize-Storage.ps1`: Windows-local, label-based storage initializer with preview mode; no hardcoded drive letters.
-- `backend/pyproject.toml`: Python runtime/test dependencies.
-- `backend/ai_singer/main.py`: FastAPI `/health` and `/ready`.
-- `backend/ai_singer/storage.py`: validation of the configured absolute storage directory.
-- `backend/ai_singer/__init__.py`: Python package marker.
-- `backend/tests/test_api.py`, `backend/tests/test_storage.py`: 9 automated tests.
-
-No `frontend/`, singing model, music analysis engine or dataset pipeline exists. Storage directories are created **locally on demand**, not in Git.
+No `frontend/`, music model weights or data assets are committed.
 
 ## 6. Development Progress
 
-**Completed in GitHub:**
-- Audited the existing repository; established version-control conventions and a persistent handoff.
-- Implemented minimal FastAPI liveness and storage-readiness routes with 9 passing tests in the isolated development workspace.
-- Recorded user-provided Windows, disk, GPU and toolchain inventory.
-- **User confirmed that the Seagate device is the 2 TB `D:` volume labeled `Dimpu`.**
-- Added a PowerShell script that discovers the volume by its label, previews or creates project subdirectories, and configures session-only storage/model cache variables.
+**Implemented and verified in development container:**
+- Existing `main` foundation retained; 9 original tests preserved.
+- CPU-only `POST /analyze` implemented. Uses FFmpeg to decode a completed 1–15-second clip to 16 kHz mono, rejects invalid input, calculates frame-level pitch, candidate notes, quiet intervals, and warnings.
+- Automated tests: **25 passed** in isolated Linux Python 3.13 development environment, including API-level WAV upload tests, generated note frequencies, silence, noise, decoder failure, and upload size/duration errors.
+- Editable installation (`--no-build-isolation --no-deps` with dependencies already present) and `compileall` succeeded.
 
-**Verified from user-provided PowerShell execution:** The repository was cloned successfully to the user's computer, the script's `-Preview` resolved `Dimpu` to `D:\`, and the non-preview run reported `Storage directories created or verified.` The session then printed `AI_SINGER_STORAGE_ROOT = D:\AI_Singer`. These are reported local execution results, not independent filesystem inspection by the assistant.
+**Confirmed by user on Windows:** Seagate `Dimpu` volume initialized as `D:\AI_Singer`; Python 3.12.10; previous 9 backend tests passed and `/health`/`/ready` returned HTTP 200. Fresh Windows PowerShell successfully ran **FFmpeg 9.1 and ffprobe 9.1** and reran storage initializer.
 
-**Verified from user-provided Windows test/server logs:** `python -m pytest -q` reports **9 passed, 1 warning in 0.70 seconds**. Uvicorn started, completed application startup, and served `GET /health` and `GET /ready` with HTTP 200. The readiness success is evidence that the configured storage directory passed the backend's basic readiness validation at that moment.
+**Awaiting Windows verification:** Installing new dependencies from `pyproject.toml`, running the new 25-test suite and loading short real microphone recordings through `/docs`.
 
-**Additional user-reported Windows check:** `ffmpeg -version` returned `CommandNotFoundException` in PowerShell. This indicates the executable was unavailable on PATH in that session; it could be absent or not configured. **No installation has been verified.**
-
-**Not yet verified on laptop:** Disk read/write behavior, cache paths, FFmpeg remediation, model/GPU runtime, or any audio analysis. The GitHub connection cannot directly inspect the laptop.
-
-**Not implemented:** Audio recording, frontend, pitch/timing analysis, singing generation, conversation agent, model downloads, training, dataset pipeline or deployment.
+**Not implemented:** Voice synthesis, model evaluation/training, natural-language feedback, lyrics/phoneme alignment, interactive studio UI, or conversational agent.
 
 ## 7. Technical Decisions
 
@@ -123,68 +116,50 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 
 ## 8. Known Issues
 
-- No singing model, audio understanding, or frontend is implemented yet. API currently provides only health and configured storage-readiness checks.
-- User ran the storage initializer on Windows and it reported successful directory creation/verification. However, folder contents and HDD read/write behavior have not been independently checked; model cache and exFAT compatibility remain unverified.
-- `Get-Volume` volume-label lookup is Windows-specific; it intentionally fails on missing or ambiguous labels rather than writing to an unintended drive.
-- Because `D:` uses **exFAT**, some model caches or tools may have limitations with symlinks and permissions. Confirm compatibility and model loading before major downloads.
-- `C:` has ~41 GB free, and GPU is RTX 3050 Ti with 4 GiB VRAM. Large models or training may require smaller configurations or cloud compute.
-- WinGet v1.29.380 reported successfully installing **Gyan.FFmpeg 9.1** (252 MB downloaded, hash verified, archive extracted, PATH modified, command aliases created). In the **same existing PowerShell process**, `ffmpeg -version` and `ffprobe -version` still returned `CommandNotFoundException`. A new terminal has not yet been used to verify PATH activation or command execution. CUDA toolkit/PyTorch runtime are still unverified; `nvidia-smi` CUDA support does not establish toolkit installation.
-- `/ready` currently checks an existing absolute writable folder and does not independently prove physical drive identity; rerun the label-based script after reconnecting the HDD, and never rely on an old path.
-- Windows pytest reported one `StarletteDeprecationWarning`: importing `fastapi.testclient` warns that `httpx` with `starlette.testclient` is deprecated and suggests `httpx2`. This is nonfatal; inspect actual versions and upstream guidance before changing dependencies.
-- An incidental `GET /favicon.ico` returned HTTP 404 while browsing API endpoints; there is no frontend/favicon yet, and it is not a failed API health check.
-- End-to-end audio quality, expressive singing, Telugu interpretation, model compatibility, dataset rights and latency remain untested.
+- Audio analysis is a **baseline experiment**, not a verified musical transcription. YIN and stability thresholds can miss vibrato, short notes, ornaments, slides, soft singing, overlapping sounds and noisy recordings.
+- Quiet intervals represent low measured RMS, not necessarily semantic or musical rests. Timing is frame-based and approximate (20 ms steps, ~128 ms window).
+- No beat-level tempo inference, Telugu lyrics, voice identity, singing synthesis, emotions or creative musical suggestions are implemented.
+- `POST /analyze` handles one completed 1–15 s upload (<=10 MiB); it decodes via an FFmpeg subprocess and does **not** save takes or generate a rendered pitch plot. The JSON pitch track can later power plotting in the studio UI.
+- Real singer recordings, microphone formats (WebM/MP3), peak memory use, first-run latency, and Windows dependency installation still need validation. Tests currently exercise WAV and generated signals only.
+- Windows `D:` Seagate exFAT remains slower than internal SSD and may not support symlink-intensive model caches.
+- Windows earlier emitted one nonfatal `StarletteDeprecationWarning` from `fastapi.testclient` regarding httpx/httpx2; don't upgrade libraries blindly.
+- RTX 3050 Ti has 4 GiB VRAM; larger singing and training models may need cloud resources or carefully reduced configurations.
 
 ## 9. Testing and Verification
 
-**Performed in isolated development workspace (not on the user laptop):**
-- `python -m compileall -q ai_singer` succeeded.
-- `PYTHONPATH=. python -m pytest -q`: **9 passed** (re-run during this storage-setup session), testing API readiness and storage errors.
-- A previous editable installation with preinstalled dependencies passed; fresh dependency installation on the user's Windows environment remains untested.
-- Label-based PowerShell initializer reviewed for non-destructive operations, explicit preview, and session-only environment settings. **It cannot be executed or functionally tested on Windows from this environment** because no Windows PowerShell runtime or attached Seagate drive is available.
+**Development workspace tests (Linux Python 3.13.5, not user's Windows):**
+- `python -m compileall -q ai_singer tests`: passed.
+- `PYTHONPATH=. python -m pytest -q`: **25 passed**.
+- `python -m pip install -e . --no-deps --no-build-isolation`: succeeded using preinstalled dependencies; `python -m pytest -q` still **25 passed**.
+- Two-tone sample (220 and 330 Hz), steady 220 Hz note, quiet interval, white noise and silent recordings exercised. API upload returns structured JSON; bad and oversized uploads rejected.
+- Manual analysis benchmark in the container: a 15-second 220 Hz reference produced 751 pitch frames and a steady A3 candidate; does not establish real-world latency guarantees or musical accuracy.
+- Source files and documentation reviewed; the generated Git tree should be read back after the commit.
 
-**Reported successful by user from Windows PowerShell:** Clone, storage preview, actual storage initializer, and current-session `AI_SINGER_STORAGE_ROOT` value. Python 3.12 virtual-environment backend pytest run: **9 passed, 1 warning in 0.70 seconds**; Uvicorn started successfully at `http://127.0.0.1:8000`, with `GET /health` **200** and `GET /ready` **200** in server logs. The test warning originates in FastAPI TestClient / Starlette and does not fail tests. **Not performed/verified:** independent HDD file write/read, FFmpeg, real GPU/model load, singing test, or training. HTTP response bodies were not included in the shared logs.
+**User-reported Windows verification before this change:** Existing 9 tests passed (1 warning), Uvicorn started, and `/health` and `/ready` returned HTTP 200. Newly opened PowerShell successfully executed `ffmpeg -version` and `ffprobe -version`, both **9.1**, and the Seagate setup script reported success.
+
+**Not yet tested:** New analyzer on Windows/Python 3.12, user singing, consumer microphone/WebM/MP3 clips, GPU or model inference, voice quality or training.
 
 ## 10. Development Environment
 
-**Reported from the user's Windows PowerShell output (2026-11-22):**
+**Reported by user from Windows 11 Home (build `10.0.26300`):** Git 2.51, Python 3.12.10, Node 24.11, NVIDIA RTX 3050 Ti Laptop GPU (4 GiB), NVIDIA driver 610.60, Seagate `Dimpu` exFAT 2 TB volume mounted `D:`, `C:` ~41 GB free.
 
-| Item | Reported value |
-| --- | --- |
-| OS | Windows 11 Home, `10.0.26300` |
-| GPU | NVIDIA GeForce RTX 3050 Ti Laptop GPU, 4 GiB VRAM; Intel UHD |
-| NVIDIA driver | `610.60`; `nvidia-smi` CUDA version `13.3` (driver support only) |
-| Git | `2.51.0.windows.1` |
-| Python | `3.12.10` |
-| Node.js | `24.11.0` |
-| `C:` | NTFS; ~41 GB available |
-| `B:` | NTFS; ~101 GB available |
-| `D:` | exFAT, `Dimpu`; ~2 TB capacity, ~1.66 TB available; **user-confirmed Seagate HDD** |
+**Audio tools (now verified by user):** FFmpeg `9.1-full_build-www.gyan.dev` and FFprobe `9.1-full_build-www.gyan.dev` both ran successfully with fresh PowerShell and exited normally. `winget` installed Gyan.FFmpeg. The new PowerShell session reran `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'`, reporting `D:\AI_Singer` configured.
 
-**Windows storage setup completed according to user-supplied local PowerShell transcript:** Cloned repository and ran:
+**Next Windows setup (same terminal after updating repository):**
 
 ```powershell
-.\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu' -Preview
+cd C:\Users\nithi\AI-Singer
+git pull --ff-only
 .\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu'
-$env:AI_SINGER_STORAGE_ROOT
-$env:HF_HOME
-$env:TORCH_HOME
-```
-
-The first command only displays a preview; the second creates folders and sets three variables for the **current PowerShell session**. It does not change global machine/user environment variables, format the drive, or download models.
-
-**Backend (tested successfully on user's Windows laptop, per user-provided logs):**
-
-```powershell
 cd backend
-python -m venv .venv
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 .\.venv\Scripts\python -m pytest -q
 .\.venv\Scripts\python -m uvicorn ai_singer.main:app --reload
 ```
 
-In a separate terminal, `Invoke-RestMethod http://127.0.0.1:8000/health` should show `ok`, and `Invoke-RestMethod http://127.0.0.1:8000/ready` should show `ready` when the drive folder is available.
+Open `http://127.0.0.1:8000/docs` in browser, expand **POST /analyze**, click **Try it out**, choose a 1–15-second solo vocal WAV, then **Execute**. Results include time-stamped pitch and candidate note events. Existing `/health` and `/ready` endpoints are unchanged. Stop a previous Uvicorn process with Ctrl+C before starting a new one on port 8000. Some imports (librosa/numba) may be slower on first call.
 
-Windows pytest, Uvicorn startup, and both endpoint HTTP 200 statuses have been reported successfully. The subsequent `ffmpeg -version` failed (`CommandNotFoundException`). Suggested Windows remediation: run `winget --version`, then `winget install --id Gyan.FFmpeg --exact --source winget` if available, open a new PowerShell window, and check `ffmpeg -version` plus `ffprobe -version`. A new session must rerun `Initialize-Storage.ps1` to configure HDD paths.
+If the storage initializer is not run in the same shell, `/ready` will report 503, even though `/analyze` currently does not persist recordings.
 
 ## 11. Model and Storage Configuration
 
@@ -219,24 +194,24 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. **Next:** WinGet successfully reported installing FFmpeg 9.1, but the old PowerShell session still cannot find `ffmpeg` or `ffprobe`. **Close the old PowerShell window, launch a new one**, and run `ffmpeg -version` and `ffprobe -version`. If unavailable then, use `winget list --id Gyan.FFmpeg --exact` and `Get-Command ffmpeg -All` to diagnose PATH. Do not reinstall prematurely.
-2. Confirm `$env:HF_HOME` and `$env:TORCH_HOME` in the configured shell; optionally validate a small temporary file read/write on Seagate without downloading models. Record actual exFAT cache behavior before large downloads.
-3. Implement a focused, safe 5–15-second completed-audio input → pitch, timing and pause estimates → structured JSON and diagnostic output experiment; design low-confidence/invalid-input handling and tests.
-4. Validate the analyzer on short, consented known-reference audio and record measured errors.
-5. Evaluate licensed male/female singing voice-conversion candidates with the 4 GiB GPU constraints, reporting quality, latency and resource use.
-6. Build the conversational music-director agent, targeted revisions, approved-take memory and Director/Collaborative modes.
-7. Prepare a rights-cleared Telugu dataset and experiment with controllable synthesis/fine-tuning only when justified by measurements.
+1. **Next: Windows acceptance check.** Fast-forward local checkout, initialize `Dimpu` in that shell, install updated backend dependencies and run pytest. Confirm 25 tests pass on Python 3.12.10; report warnings or dependency issues.
+2. Upload an original/consented 1–15-second **clear solo vocal WAV** via `/docs` → `POST /analyze`. Inspect the pitch contour, candidate note events, pauses and limitations. Do not mark musical fidelity verified until compared with the recording.
+3. Add diagnostic plotting in studio UI or generated report, and quantify measured note/pitch/timing error on reference clips.
+4. Improve voicing and pitch methods with RMVPE/torchcrepe comparison only if the baseline has documented shortcomings.
+5. Evaluate licensed male/female singing voice-conversion models with 4 GiB VRAM constraints; record quality, resource use and latency.
+6. Implement the LLM-orchestrated director/creative musical agent, targeted corrections and versioned approved takes.
+7. Prepare rights-cleared Telugu vocal datasets and consider controlled synthesis/fine-tuning when necessary.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-22. **Starting commit:** `981c3e0` on `main`.
+**Date:** 2026-11-22. **Base commit:** `38231c0` on `main`.
 
-**User-reported Windows package installation:** `winget --version` returned `v1.29.380`. `winget install --id Gyan.FFmpeg --exact --source winget` found **FFmpeg 9.1**, downloaded a 252 MB ZIP, verified the installer hash, extracted it, modified PATH, added `ffmpeg` / `ffplay` / `ffprobe` aliases, and reported **Successfully installed**.
+**User-confirmed local environment:** Windows FFmpeg and FFprobe both **9.1** ran successfully after a PowerShell restart; Seagate setup script again selected `Dimpu` at `D:\AI_Singer`. The previous Windows backend had **9 passing tests**, and `/health` plus `/ready` returned HTTP 200.
 
-**Remaining environment issue:** Immediately after installation in the **original PowerShell window**, both `ffmpeg -version` and `ffprobe -version` returned `CommandNotFoundException`. WinGet instructed a shell restart. These failures do not establish an unsuccessful installation; the current process's PATH likely predates the change. Fresh-shell checks have not yet been reported.
+**Implementation in this development session:** Added `POST /analyze` for short uploaded audio, bounded FFmpeg decode, pitch estimation using librosa YIN with periodicity + RMS rejection, candidate MIDI note events and quiet intervals, clear limitations, and new dependencies/tests. No model weights or recorded user audio stored.
 
-**Changes:** Documentation-only update. No code, dependencies or installed tools were modified remotely. Identify this documentation commit from Git history.
+**Verification:** Isolated Linux Python 3.13.5 container: **25 tests passed**, compileall passed, editable install using preinstalled packages passed. Generated sine-wave note/silence tests pass. **Windows installation and genuine singing performance remain untested.**
 
-**Previously confirmed:** Windows backend tests 9 passed (1 warning); Uvicorn started; `/health` and `/ready` both returned HTTP 200. Seagate `Dimpu` storage root was initialized on `D:`.
+**Changed files:** `backend/pyproject.toml`, `backend/ai_singer/main.py`, new `backend/ai_singer/audio_analysis.py`, new `backend/tests/test_audio_analysis.py`, `README.md`, this context file. No unrelated files changed. Check Git history for commit hash.
 
-**Next task:** User closes the old PowerShell window, opens a new one, checks `ffmpeg -version` and `ffprobe -version`, and runs `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'` to configure current-session cache paths. If the commands still fail, inspect `winget list --id Gyan.FFmpeg --exact` and `Get-Command ffmpeg -All` before changing PATH. Continue with musical analysis only once FFmpeg can be run.
+**Stop point:** Ready for user to `git pull --ff-only`, install updated dependencies, run pytest, and submit a short recorded vocal clip in Swagger `/docs`. Only after verifying actual singing may the pitch model be called effective in practice.
