@@ -99,7 +99,9 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 - **User confirmed that the Seagate device is the 2 TB `D:` volume labeled `Dimpu`.**
 - Added a PowerShell script that discovers the volume by its label, previews or creates project subdirectories, and configures session-only storage/model cache variables.
 
-**Not yet executed/verified on laptop:** PowerShell storage script, physical folder creation, FFmpeg availability, local API installation and `/ready` response. The GitHub connection cannot directly change files or environment variables on the user laptop.
+**Verified from user-provided PowerShell execution:** The repository was cloned successfully to the user's computer, the script's `-Preview` resolved `Dimpu` to `D:\`, and the non-preview run reported `Storage directories created or verified.` The session then printed `AI_SINGER_STORAGE_ROOT = D:\AI_Singer`. These are reported local execution results, not independent filesystem inspection by the assistant.
+
+**Not yet verified on laptop:** Actual directory listing/writes, the other two cache variables, FFmpeg availability, local API installation/tests, and `/ready` response. The GitHub connection cannot directly inspect the user's local files.
 
 **Not implemented:** Audio recording, frontend, pitch/timing analysis, singing generation, conversation agent, model downloads, training, dataset pipeline or deployment.
 
@@ -118,7 +120,7 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 ## 8. Known Issues
 
 - No singing model, audio understanding, or frontend is implemented yet. API currently provides only health and configured storage-readiness checks.
-- User confirmed Seagate `Dimpu` `D:` as the target, but **the initializer has not been executed on Windows**, so local folder creation and drive access remain unverified.
+- User ran the storage initializer on Windows and it reported successful directory creation/verification. However, folder contents and HDD read/write behavior have not been independently checked; model cache and exFAT compatibility remain unverified.
 - `Get-Volume` volume-label lookup is Windows-specific; it intentionally fails on missing or ambiguous labels rather than writing to an unintended drive.
 - Because `D:` uses **exFAT**, some model caches or tools may have limitations with symlinks and permissions. Confirm compatibility and model loading before major downloads.
 - `C:` has ~41 GB free, and GPU is RTX 3050 Ti with 4 GiB VRAM. Large models or training may require smaller configurations or cloud compute.
@@ -134,7 +136,7 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 - A previous editable installation with preinstalled dependencies passed; fresh dependency installation on the user's Windows environment remains untested.
 - Label-based PowerShell initializer reviewed for non-destructive operations, explicit preview, and session-only environment settings. **It cannot be executed or functionally tested on Windows from this environment** because no Windows PowerShell runtime or attached Seagate drive is available.
 
-**Not performed:** Windows PowerShell script execution, HDD writes, local package installation, FFmpeg check, real GPU/model load, actual singing test, or training. Read back GitHub commit and branch after push.
+**Reported successful by user from Windows PowerShell:** Clone, read-only storage preview, actual storage initializer, and current-session `AI_SINGER_STORAGE_ROOT` value. The script reported successful folder creation. **Not performed/verified:** independent HDD folder listing and write check, local package installation, FFmpeg check, running API, real GPU/model load, singing test, or training. Read back GitHub commit and branch after push.
 
 ## 10. Development Environment
 
@@ -152,7 +154,7 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 | `B:` | NTFS; ~101 GB available |
 | `D:` | exFAT, `Dimpu`; ~2 TB capacity, ~1.66 TB available; **user-confirmed Seagate HDD** |
 
-**Windows setup, pending local verification:** Clone or fast-forward `main`, then from the repository root run:
+**Windows storage setup completed according to user-supplied local PowerShell transcript:** Cloned repository and ran:
 
 ```powershell
 .\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu' -Preview
@@ -180,7 +182,7 @@ Check `ffmpeg -version` when convenient. New PowerShell terminals require rerunn
 
 ## 11. Model and Storage Configuration
 
-**Confirmed storage destination (per user):** Seagate `Dimpu` exFAT volume, currently `D:`. The intended local root is `D:\AI_Singer`. **This path has not yet been created or directly verified on the laptop.**
+**Configured destination (per user and local PowerShell output):** Seagate `Dimpu` exFAT volume currently at `D:`, project root `D:\AI_Singer`. The initializer reported directory creation/verification; direct folder listing and write tests have not yet been supplied.
 
 **Folder layout created by the script only when run locally:**
 
@@ -211,8 +213,8 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. On Windows, update/clone the GitHub repository; run the storage initializer in preview mode then actual mode. Confirm it resolves `Dimpu` to `D:` and creates the intended folders.
-2. In the **same PowerShell session**, install backend dev dependencies, run pytest and launch the API. Check `/health` and `/ready` and report any PowerShell execution-policy or filesystem errors.
+1. **Next:** In the same Windows PowerShell session, confirm the expected cache variables and the project folder with `Test-Path $env:AI_SINGER_STORAGE_ROOT`, then install backend dev dependencies and run pytest. If using a new terminal, rerun `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'` first.
+2. Launch the backend and verify `/health` and `/ready` on Windows. Record any install/test errors and investigate without moving large dependencies onto the HDD.
 3. Confirm FFmpeg availability with `ffmpeg -version`. Evaluate external-drive cache behavior before any large model download.
 4. Implement a minimal 5–15-second audio intake → measured pitch/time/pauses → structured JSON and diagnostic plot experiment.
 5. Validate with permissioned short samples, then measure pitch/rhythm fidelity and latency of candidate male/female singing conversion.
@@ -221,14 +223,16 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-22. **Starting GitHub commit:** `1fd5441` on `main`.
+**Date:** 2026-11-22. **Starting GitHub commit:** `8258f98` on `main`.
 
-**New confirmed decision:** User explicitly identified the `Dimpu` `D:` 2 TB exFAT volume as their Seagate external HDD and selected it for large AI Singer assets. This supersedes the earlier uncertainty about the reported 1 TB drive.
+**Local result reported by user:** Successfully cloned `Nithin0553/AI-Singer` to `C:\Users\nithi\AI-Singer`. Ran `Initialize-Storage.ps1 -VolumeLabel 'Dimpu' -Preview`; PowerShell located the confirmed Seagate exFAT drive at `D:\` and displayed the intended directory list without modifying anything. The subsequent non-preview run reported `Storage directories created or verified.` Finally, `$env:AI_SINGER_STORAGE_ROOT` returned `D:\AI_Singer`.
 
-**Changes:** Added a safe Windows storage initializer with preview mode and drive-label resolution. Documented intended `D:\AI_Singer` folders, current-shell `AI_SINGER_STORAGE_ROOT` / `HF_HOME` / `TORCH_HOME`, and Windows commands in README and this handoff. `.env.example` remains non-secret and unconfigured.
+**Updated status:** Storage initialization **reported successful on the user's Windows machine**. It is not independently filesystem-verified by ChatGPT. Other cache variables were set by script but their values were not printed by the user. No models or datasets were downloaded.
 
-**Verification:** Backend compileall and pytest: 9 tests passed again in the isolated Linux environment; script checked statically but **not executed on the Windows laptop or the Seagate HDD**. No actual folders, downloads, or environment changes were made on that laptop.
+**Changes in this session:** Updated this handoff to reflect the actual Windows storage-setup results; no application code changes.
 
-**Commit:** Consult the GitHub commit containing this file (a commit cannot include its own SHA).
+**Testing:** No new application tests. Existing 9 backend tests previously passed in isolated development environment. **Windows backend tests, service startup and FFmpeg remain pending.**
 
-**Stop point:** Changes committed to GitHub; waiting for user to execute preview and setup commands locally and verify storage/API readiness. **Next:** Follow priority 1 above, then audio understanding.
+**Commit:** Use Git history to identify the commit containing this document.
+
+**Stop point / exact next task:** Run `Test-Path $env:AI_SINGER_STORAGE_ROOT`, verify `$env:HF_HOME` and `$env:TORCH_HOME`, then run the Windows backend install, pytest and `/health` + `/ready` checks. Do not begin large downloads before confirming cache paths.
