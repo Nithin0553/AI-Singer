@@ -98,7 +98,7 @@ No `frontend/`, music model weights or data assets are committed.
 
 **New user report:** Swagger `POST /analyze` with `Test 1.m4a` returned HTTP **422**, `Cannot decode the recording. Try WAV, MP3, or WebM audio.` A separate `GET /analyze` returned **405**, which is expected because the route only accepts POST.
 
-**Pending on Windows:** Update checkout, rerun 29 tests, retry the same recording. The original M4A file was **not supplied** for inspection, so the exact cause and successful resolution for that recording are unverified.
+**New Windows test result reported 2026-11-23:** Local pytest printed **28 passed, 1 warning, 2 errors in 14.50s**, including a `ValueError: the environment variable is longer than 32767 characters`. The full traceback and names of the two failed tests were not supplied, so the cause is unresolved. Uvicorn started successfully and then shut down cleanly; no `/analyze` request was shown in the later server logs. The user's actual M4A file still has not been provided for inspection.
 
 ## 7. Technical Decisions
 
@@ -111,7 +111,8 @@ No `frontend/`, music model weights or data assets are committed.
 
 ## 8. Known Issues
 
-- **Real user file still unverified:** Screenshot shows an M4A upload rejected by the old non-seekable decoder with HTTP 422. The new seekable-file implementation passed generated M4A tests, but the exact `Test 1.m4a` was not provided. If it still fails, inspect its FFprobe metadata and playback. Corrupt/incomplete/protected files and unusual codecs may remain unsupported.
+- **Windows regression-test errors unresolved:** Latest user-run pytest: `28 passed, 1 warning, 2 errors`; observed `ValueError: the environment variable is longer than 32767 characters`. Exact test names and full traceback are required. M4A test fixture generates AAC by calling `subprocess.run` and is one investigation target, but **not a confirmed root cause**. Inspect lengths of environment variables without printing their contents.
+- **Real user file still unverified:** Screenshot shows an M4A upload rejected by the old non-seekable decoder with HTTP 422. The new seekable-file implementation passed generated M4A tests, but the exact `Test 1.m4a` was not provided. If it still fails, inspect FFprobe metadata and playback.
 - `GET /analyze` returns HTTP 405 by design; use `POST /analyze` multipart upload in `/docs`.
 - Heuristic YIN pitch extraction can miss vibrato, ornaments, slides, short notes, soft singing and noisy vocals; no end-to-end voice fidelity demonstrated.
 - Silence intervals are RMS-based rather than semantically classified rests. No tempo inference, lyric alignment, visual score, voice generation, editing UI or speaking agent yet.
@@ -130,7 +131,7 @@ No `frontend/`, music model weights or data assets are committed.
 
 **Previously user-reported Windows checks:** FFmpeg/FFprobe 9.1 available, Seagate `Dimpu` configured, existing 9 backend tests passed, API `/health` and `/ready` returned HTTP 200. The user also reported one failed M4A `POST /analyze` (422) and expected `GET /analyze` (405) with the prior decoder.
 
-**Not yet tested:** New fix with FFmpeg 9.1 on Windows/Python 3.12; exact user's M4A recording, singer pitch accuracy, performance, GPU, or AI models.
+**New user-reported Windows run:** `28 passed, 1 warning, 2 errors in 14.50s`; one shown error fragment is `ValueError: the environment variable is longer than 32767 characters`. **The full traceback, exact tests, and relevant environment-variable lengths are still missing.** Uvicorn started and then shut down cleanly. No fresh `POST /analyze` result was provided. New fix with FFmpeg 9.1 remains unverified end-to-end on user's actual M4A; singer pitch accuracy, GPU, or AI models have not been tested.
 
 ## 10. Development Environment
 
@@ -187,25 +188,22 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. **Windows acceptance:** Stop running Uvicorn (`Ctrl+C`), `git pull --ff-only`, rerun pytest and verify **29 passed**. Relaunch with `uvicorn ... --reload`.
-2. In `http://127.0.0.1:8000/docs` retry **POST /analyze** with the original `Test 1.m4a` (1–15 seconds, <=10 MiB). Record the actual HTTP response. Do not use browser navigation to `GET /analyze`.
-3. If the same M4A fails, confirm it plays locally and run `ffprobe -v error -show_format -show_streams 'path-to-Test 1.m4a'` (share relevant codec/duration/errors, not private metadata), or convert a copy to WAV. The original file has not been uploaded to ChatGPT, so do not speculate about its codec or integrity.
-4. Once the upload succeeds, inspect pitches/notes/pauses and evaluate against a consented known reference. Add visual diagnostic plotting and quantify errors.
-5. Compare advanced pitch models only if baseline fails demonstrated accuracy needs, then evaluate authorized voice conversion on suitable compute.
-6. Continue with director/creative agent, versioned take memory and licensed Telugu singing data after audio validation.
+1. **Investigate Windows-only test errors before changing dependencies.** In the existing backend directory, run `.\.venv\Scripts\python -m pytest -q --tb=short`. Collect the two error headings/test names and traceback, especially the line where the 32,767-character environment-variable limit occurs. Do not share environment-variable values or secrets.
+2. Inspect variable **lengths only** in the same PowerShell session: `Get-ChildItem Env: | Where-Object { $_.Value.Length -ge 32000 } | Select-Object Name,@{Name='Length';Expression={$_.Value.Length}}`. Run `git status --short` to distinguish local edits from the remote suite. If `pytest` otherwise succeeds, this may be isolated to the FFmpeg M4A generation fixture; confirm via traceback before adjusting subprocess behavior.
+3. Relaunch Uvicorn after its observed clean shutdown, then retry the original 1–15 s `Test 1.m4a` using Swagger **POST /analyze**, and report HTTP response. This is independent of test collection errors.
+4. Fix only the demonstrated issue and add a meaningful Windows regression check; update this handoff and verify before pushing.
+5. After the recording decodes, compare measured pitches and rests against the original singing and add visual diagnostics. Later assess licensed singing conversion and agent intelligence.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-22 to 2026-11-23. **Starting GitHub commit:** `37e3406` on `main`.
+**Date:** 2026-11-23. **Starting commit:** `65413e4` on `main`.
 
-**User report:** Uploaded `Test 1.m4a` using Swagger `POST /analyze` (MIME `audio/x-m4a`) and received HTTP 422 with generic FFmpeg decode error. A separate browser request `GET /analyze` returned HTTP 405; only POST is implemented.
+**Windows report from user:** Backend test summary: `28 passed, 1 warning, 2 errors in 14.50s`; shown exception `ValueError: the environment variable is longer than 32767 characters`. Full traceback and failing test names unavailable. Uvicorn reloader started, child application startup completed, then server and reloader both shut down cleanly. There was no visible subsequent `POST /analyze` request in the provided logs.
 
-**Investigation:** Existing decoder passed uploaded bytes to FFmpeg through `pipe:0` (non-seekable). MP4/M4A may require seeking; this is a plausible compatibility issue, not confirmed as the exact reason for this file's failure because the actual audio was not provided.
+**Investigated:** Existing source and tests from GitHub. Two new tests use the shared `m4a_audio` fixture, which invokes FFmpeg to generate a sample. That fixture is a possible Windows failure site, **not yet confirmed**. The earlier Linux suite passed 29 tests. Latest Windows totals indicate 30 test outcomes, so inspect local working tree and actual test collection rather than assuming the suite matches exactly.
 
-**Implementation:** Changed FFmpeg decoding to use a bounded, seekable file in `tempfile.TemporaryDirectory`, with automatic deletion. Improved decode error to mention M4A. Added regression tests for FFmpeg-generated AAC/M4A, HTTP M4A upload, temp-file lifetime on successful decode and failure. No change to `POST /analyze` API shape or large storage configuration.
+**Changes:** Updated this handoff to record the unresolved environment-related test errors and their recommended diagnostics; no application code or machine settings changed. Git commit for this documentation change is in history.
 
-**Verified:** **29 tests passed** and Python compilation succeeded in an isolated Linux/Python 3.13.5 environment using FFmpeg 7.1.x. The generated AAC/M4A request passed, but the user's actual recording and Windows FFmpeg 9.1 are still untested with the fix.
+**Verification:** Inspected GitHub files/history and user's terminal output; did not replicate Windows error. No claim of successful Windows M4A testing.
 
-**Changed:** `backend/ai_singer/audio_analysis.py`, `backend/tests/test_audio_analysis.py`, `README.md`, and `PROJECT_CONTEXT.md`. See Git history for this session's new commit.
-
-**Next task:** User fetches updated `main`, runs 29 tests, restarts Uvicorn, retries the same `Test 1.m4a`, and reports the result.
+**Next:** Request `python -m pytest -q --tb=short` tracebacks, and PowerShell lengths of large environment variables without printing values; check `git status --short`. Separately restart Uvicorn and retry the real M4A upload.
