@@ -33,7 +33,7 @@ Build a human-directed, interactive AI singing collaborator. The human sings a p
 
 | Layer | Current choice / candidate | Status |
 | --- | --- | --- |
-| UI | Next.js, React, TypeScript, Tailwind | Not implemented; use FastAPI Swagger `/docs` to submit trial recordings |
+| UI | Next.js, React, TypeScript, Tailwind | Not implemented; use Swagger `/docs` for manual uploads. A one-off pitch graph was generated from the user's JSON outside the repository. |
 | API | Python >=3.12, FastAPI, Uvicorn, python-multipart | `/health`, `/ready`, `POST /analyze` implemented |
 | Decode | FFmpeg CLI | 9.1/ffprobe 9.1 verified running in fresh Windows PowerShell |
 | Pitch prototype | NumPy, librosa YIN, SciPy median filter | CPU-only implementation; tests use generated tones, silence and noise |
@@ -112,9 +112,9 @@ No `frontend/`, music model weights or data assets are committed.
 ## 8. Known Issues
 
 - **Windows-specific pytest test-ID defect identified and patched:** The `test_invalid_audio_is_rejected` parametrization contained `b"x" * (10 * 1024 * 1024 + 1)`. Pytest previously used its literal value in the generated test ID and `PYTEST_CURRENT_TEST` environment variable, exceeding Windows' 32,767-character per-value limit during setup/teardown. The very long string of `x` in the user output matches this. Added explicit short IDs (`empty`, `invalid-format`, `oversized`) without reducing the oversized test input. This matches upstream pytest issue #6881. The patch is tested in an isolated three-case reproducer, but the full Windows suite must be rerun.
-- **Real user file still unverified:** Screenshot shows an M4A upload rejected by the old non-seekable decoder with HTTP 422. The new seekable-file implementation passed generated M4A tests, but the exact `Test 1.m4a` was not provided. If it still fails, inspect FFprobe metadata and playback.
+- **Real recording now passes the API:** User-provided Uvicorn logs show `POST /analyze` **HTTP 200**, and their attached JSON contains a 9.195-second analyzed phrase. The exact source M4A bytes are not attached and file identity was not explicitly confirmed, so this demonstrates successful audio analysis but not full compatibility with every codec or validation of musical accuracy.
 - `GET /analyze` returns HTTP 405 by design; use `POST /analyze` multipart upload in `/docs`.
-- Heuristic YIN pitch extraction can miss vibrato, ornaments, slides, short notes, soft singing and noisy vocals; no end-to-end voice fidelity demonstrated.
+- Heuristic YIN pitch extraction can miss vibrato, ornaments, slides, short notes, soft singing and noisy vocals; no end-to-end voice fidelity demonstrated. The first real JSON shows 36 candidate note segments, potentially **oversegmenting smooth pitch glides**, and a brief ~104–107 Hz low-pitch excursion at 8.90–8.94 s that may be an octave error. These require comparison with the original audio; do not auto-correct without verification.
 - Silence intervals are RMS-based rather than semantically classified rests. No tempo inference, lyric alignment, visual score, voice generation, editing UI or speaking agent yet.
 - Temp files use OS default temporary space (typically C:), bounded to 10 MiB each; simultaneous uploads may consume temporary disk. Files are deleted normally after processing but not securely overwritten.
 - Model/HDD cache behavior and real Windows audio-processing latency remain unmeasured. ExFAT may not support some cache symlink strategies.
@@ -131,7 +131,7 @@ No `frontend/`, music model weights or data assets are committed.
 
 **Previously user-reported Windows checks:** FFmpeg/FFprobe 9.1 available, Seagate `Dimpu` configured, existing 9 backend tests passed, API `/health` and `/ready` returned HTTP 200. The user also reported one failed M4A `POST /analyze` (422) and expected `GET /analyze` (405) with the prior decoder.
 
-**Prior user-reported Windows run:** `28 passed, 1 warning, 2 errors in 14.50s` and the enormous line of `x` characters followed by `ValueError: the environment variable is longer than 32767 characters`. The output and source identify a parametrized pytest ID exceeding the Windows environment-variable limit. The user's length-only `Get-ChildItem Env:` check showed no variables above 32,000 after pytest, and `git status --short` was empty; that is consistent with a **transient** `PYTEST_CURRENT_TEST` value, not a persistently oversized system environment variable. Two reported errors are consistent with pytest setup and teardown for one long-ID test, though the traceback was not supplied. **After applying short IDs**, a separate isolated reproduction passed **3/3** with the original >10 MiB payload and short collected test names. The full Windows backend suite, new M4A decoder on Windows, and user's original audio recording are not yet verified.
+**Prior user-reported Windows run:** `28 passed, 1 warning, 2 errors in 14.50s` and the enormous line of `x` characters followed by `ValueError: the environment variable is longer than 32767 characters`. The output and source identify a parametrized pytest ID exceeding the Windows environment-variable limit. The user's length-only `Get-ChildItem Env:` check showed no variables above 32,000 after pytest, and `git status --short` was empty; that is consistent with a **transient** `PYTEST_CURRENT_TEST` value, not a persistently oversized system environment variable. Two reported errors are consistent with pytest setup and teardown for one long-ID test, though the traceback was not supplied. **After applying short IDs**, a separate isolated reproduction passed **3/3** with the original >10 MiB payload and short collected test names. The full Windows backend suite after the short-ID change is not yet verified; the latest user-provided server log and JSON **do** verify one successful real `/analyze` request, but the exact file identity and musical accuracy remain unconfirmed.
 
 ## 10. Development Environment
 
@@ -188,21 +188,24 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. **Windows acceptance of parametrization fix:** Stop any active backend server if necessary, `git pull --ff-only` in the existing clone, and run `.\.venv\Scripts\python -m pytest -q` from `backend/`. The expected count remains **29 tests** (with a possible nonfatal Starlette warning), but the new Windows result is not yet known.
-2. If there is any remaining failure, collect the exact short traceback and test name rather than modifying system-wide environment variables or suppressing tests. The test-ID patch specifically addresses the 32,767-character `PYTEST_CURRENT_TEST` issue.
-3. Restart Uvicorn in a PowerShell session where `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'` has configured the storage variables. Retry the original 1–15 s `Test 1.m4a` via Swagger **POST /analyze** and report HTTP result. Check `ffprobe` metadata only if it still fails.
-4. Once the real recording decodes, inspect musical pitch candidates against the user's reference and introduce visual diagnostics and accuracy evaluation. Later test authorized singing conversion and director/creative agent workflows.
+1. **Confirm current Windows pytest result.** After the short pytest ID fix, run `.\.venv\Scripts\python -m pytest -q` within `backend` and report whether all **29** tests pass. Do not infer test results from the successful API request.
+2. **Validate the real singing analysis.** User-provided `POST /analyze` JSON shows 9.195 s, 460 20-ms frames, 390 voiced frames, 36 candidate notes, 2 RMS-quiet intervals. Listen to the original vocal recording next to its pitch curve, particularly the ~104–107 Hz dip near 8.9 s and many adjacent quantized notes. Without audio the shape can be assessed but correct note count, pronunciation, pitch accuracy and rest boundaries cannot be confirmed.
+3. Add a small in-app pitch visualization with note/event confidence and a clearer distinction between continuous glides vs discrete note onsets. Keep analysis outputs versionable only once take history is implemented.
+4. Add comparison tests with permissioned recorded vocals, measure pitch/timing error, and improve pitch segmentation/voicing before approving the baseline.
+5. Later evaluate licensed male/female voice conversion on available GPU or cloud and implement the director/collaborative agent with targeted revisions.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-23. **Starting GitHub commit:** `2249668` on `main`.
+**Date:** 2026-11-23. **Starting commit:** `0bcd16f` on `main`.
 
-**New user diagnostics:** Retried pytest on Windows, resulting `28 passed, 1 warning, 2 errors in 14.25s`. The output included a very long repeated `x` parameter and `ValueError: the environment variable is longer than 32767 characters`. The post-test PowerShell query found no environment variables with length >=32,000; `git status --short` returned no changes.
+**New successful user acceptance evidence:** Windows Uvicorn started correctly and served `GET /docs` **200**, `GET /openapi.json` **200**, and `POST /analyze` **200**. The user attached the complete JSON from this successful request. This establishes that a short real recording was decoded/analyzed successfully; audio bytes were not attached, so its exact filename/codec and pitch accuracy remain unconfirmed.
 
-**Root cause identified from repository source and pytest upstream:** The parametrized `test_invalid_audio_is_rejected` constructs `b"x" * (10 * 1024 * 1024 + 1)`; auto-generated test IDs can embed this enormous value into ephemeral `PYTEST_CURRENT_TEST`, which exceeds Windows' environment variable limit. The two errors are consistent with setup/teardown (not definitively confirmed without full traceback). Upstream pytest issue: https://github.com/pytest-dev/pytest/issues/6881 .
+**Analysis of user-provided response:** `duration_seconds=9.195`, `sample_rate_hz=16000`, `hop_seconds=0.02`, **460 frames**, **390 non-null pitch frames** (~84.8%), **36 quantized candidate note events**, and **2 detected quiet intervals** (`0.14–0.48 s`, `8.30–8.46 s`). Initial detected voicing starts at `0.84 s`. Most detected pitches lie around `208–303 Hz`, but there is a brief `103.94–106.88 Hz` excursion at `8.90–8.94 s` (MIDI ~44), a possible octave-tracking artifact. Candidate note count may reflect pitch glides and smoothing boundaries rather than actual separate sung notes. Warnings state that note boundaries are estimates.
 
-**Fix:** Added explicit, short test IDs to the three invalid-audio parameter cases while retaining the >10 MiB test. No runtime FFmpeg, application behavior, dependencies, HDD configuration, or system-wide environment variables changed.
+**Additional artifact:** Generated a one-off diagnostic pitch-contour PNG from the user's JSON in the conversation workspace. **Not added to GitHub**; no application visualization feature implemented.
 
-**Verification:** Isolated regression test with all three parameter cases, short pytest-collected names, and original oversized payload passed **3/3** in Linux container. Earlier full backend suite had **29 passed in Linux**, but the full suite has not been rerun on Windows with this patch. Source/test review and GitHub readback required after commit.
+**Tests:** No new pytest output supplied. The last reported Windows run prior to the short-ID fix had 28 passed, 1 warning, 2 errors; the **post-fix Windows 29-test result is still unknown**. Previous isolated Linux checks passed.
 
-**Next task:** User updates local checkout and reruns `pytest -q` to confirm Windows acceptance, then retries the original M4A file using `POST /analyze`.
+**Repository changes:** This context/handoff update only. No application or test code modified in this session. Check Git history for commit hash.
+
+**Where development stopped:** First successful real `/analyze` response confirmed. Next confirm post-fix Windows test suite, then compare the pitch graph with the original audio and address over-segmentation and apparent octave errors. No voice synthesis or conversational agent exists yet.
