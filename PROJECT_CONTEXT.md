@@ -2,7 +2,7 @@
 
 > **Persistent handoff:** Read this file at the beginning of each development session. Then inspect current source files and recent Git commits; this document is not a substitute for verification.
 >
-> **Last reviewed:** 2026-11-23 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Optional RMVPE ONNX integration and YIN comparison CLI implemented. Real ONNX inference on Windows remains unverified.
+> **Last reviewed:** 2026-11-23 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Optional RMVPE ONNX integration and YIN comparison CLI implemented; first genuine RMVPE/YIN Windows benchmark completed, musical accuracy against ground truth still unverified.
 >
 > **Verification boundary:** Repository contents/history were checked through GitHub. Hardware and tool versions below are from **user-provided Windows PowerShell output**; no direct access to or verification on the laptop or external disk.
 
@@ -74,9 +74,9 @@ The RMVPE adapter requires a manually supplied, SHA-256 verified weight file und
 
 **Implemented and tested locally:** Optional RMVPE ONNX CPU adapter, query-parameter selection and benchmark script with elapsed runtime, shared-voiced count, median absolute pitch disagreement and octave-like differences. The default YIN branch remains available. No model downloads. Mirrored repository test suite: **41 passed**, including 29 existing tests and 12 new RMVPE/benchmark tests using mocked model predictions, with Python compilation and editable package installation successful in isolated Python 3.13 workspace.
 
-**Previously user-verified Windows:** Seagate `Dimpu` setup, FFmpeg/ffprobe 9.1, YIN `POST /analyze` HTTP 200 with a 9.195-second recording and 460 analysis frames. 36 candidate notes and an apparent late octave drop require listening/ground truth verification. Windows pytest after the short test-ID fix has not yet been reported.
+**User-verified Windows:** Seagate `Dimpu` setup, FFmpeg/ffprobe 9.1 and YIN `POST /analyze` HTTP 200 for the 9.195-second recording. The user ran the new YIN/RMVPE benchmark against this recording and provided its full JSON report: **YIN 11.342 s, RMVPE 2.102 s, 460 frames, 388 jointly voiced frames, 11 cents median absolute pitch disagreement**, and 3 adjacent frames of octave-like disagreement near 8.90–8.94 s. This establishes functioning real ONNX model inference on Windows; it does not establish ground-truth correctness or licensing compliance. Windows full pytest after the short-ID fix has not yet been reported.
 
-**Not verified:** Real RMVPE model weights, optional package installed on the user's Windows computer, CPU inference time/accuracy and comparison against original recording. The singing agent, frontend, voice models and training are unimplemented.
+**Still not verified:** Full Windows pytest result after short-ID fix, checkpoint SHA-256 as independently displayed, source/model licensing, repeat-run latency and correctness against annotated pitch or the actual sung audio. The singing agent, frontend, voice models and training remain unimplemented.
 
 ## 7. Technical Decisions
 
@@ -89,12 +89,12 @@ The RMVPE adapter requires a manually supplied, SHA-256 verified weight file und
 
 ## 8. Known Issues
 
-- Real RMVPE checkpoint inference and install are still **pending**. Mock-based integration success is not evidence that RMVPE is accurate or even runs successfully on the user's machine.
+- **Real RMVPE inference now confirmed by user-run benchmark on Windows.** Single-run runtime YIN 11.342 s vs RMVPE 2.102 s (~5.40x in this run), but first-use warm-up/caching and repeated-run latency have not been characterized. This result is not a general performance guarantee.
 - The canonical weight SHA-256 is `5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd` (per third-party package). Review license and rights for commercial use before relying on this checkpoint.
-- Thresholds (0.03 model confidence, 80–900 Hz) and 20 ms time-grid downsampling are provisional. Pitch glide over-segmentation and an octave-like artifact remain in YIN's first recording.
+- Thresholds (0.03 model confidence, 80–900 Hz) and 20 ms time-grid downsampling are provisional. **YIN detected 36 candidate note segments, RMVPE 43** on the same recording; both may oversegment vocal glides and ornaments. Around **8.90–8.94 s**, YIN dips near MIDI 44 and RMVPE stays near MIDI 56, a roughly one-octave difference over 3 consecutive 20 ms frames (a single short event). RMVPE is more continuous there, but which estimate matches the singer remains unverified without the original audio.
 - Windows pytest previously failed because huge parameter IDs exceeded `PYTEST_CURRENT_TEST` variable limit; shortened test IDs committed, but full Windows acceptance result not yet provided.
-- User-provided YIN JSON confirms first real recording processing, not note transcription correctness. Original audio bytes not uploaded to ChatGPT.
-- Seagate is exFAT, may cause symlink/cache challenges. CPU inference latency and memory use on Windows unmeasured. One nonfatal Starlette TestClient warning was reported.
+- The full user-provided YIN/RMVPE JSON confirms real Windows pitch estimates; **388 overlapping voiced frames**, **11-cent median absolute disagreement**, and **355 of 388 overlapping frames (91.5%) within 50 cents**. The original audio bytes have not been supplied, so perceived quality, note onsets and ground-truth pitch remain unknown. Small inter-model disagreement is not proof of accuracy.
+- Seagate is exFAT and may cause symlink/cache challenges. CPU inference elapsed time was recorded for one run but memory use and repeatability are unmeasured. One nonfatal Starlette TestClient warning was previously reported.
 
 ## 9. Testing and Verification
 
@@ -102,7 +102,9 @@ The RMVPE adapter requires a manually supplied, SHA-256 verified weight file und
 
 **User Windows verified previously:** FFmpeg/ffprobe 9.1, external `Dimpu` drive configuration and successful YIN `POST /analyze` HTTP 200 with a 9.195 s real recording (460 frames). User has not supplied a subsequent full Windows pytest result after short-ID fix.
 
-**Not tested:** `rmvpe-onnx` dependency installation on Windows, real checkpoint loading, measured neural accuracy and performance on actual singing, singing audio generation and multilingual agent.
+**New Windows acceptance evidence (user-provided full JSON):** Real YIN/RMVPE comparison completed and report saved under `D:\AI_Singer\outputs\previews\yin-rmvpe-comparison.json`; duration 9.195 seconds, sample rate 16 kHz, hop 20 ms, 460 frames. Runtimes: YIN 11.342 s, RMVPE 2.102 s. Voiced frames: YIN 390, RMVPE 393, both 388. Median absolute disagreement: 11 cents. 3 consecutive octave-like disagreement frames near 8.90–8.94 s (~-1187 to -1199 cents YIN minus RMVPE). Note event counts: YIN 36, RMVPE 43. 355/388 jointly voiced frames (91.5%) differ by <=50 cents. The uploaded report was analyzed; this is still **not accuracy against known reference notes**, and exact checkpoint hash was not independently provided.
+
+**Not tested/reported:** Windows post-fix full pytest output, repeat-run model inference time, source model rights, ground-truth pitch accuracy, singing output and multilingual agent.
 
 ## 10. Development Environment
 
@@ -147,24 +149,24 @@ Alternatively use `POST /analyze?estimator=rmvpe` in Swagger after the model has
 
 ## 12. Next Steps
 
-1. **Windows integration check:** Fast-forward the existing clone, initialize `Dimpu` in the current terminal, install optional RMVPE dependencies, run pytest and report whether all **41 tests pass** (possible nonfatal Starlette warning).
-2. **Explicit model setup:** After reviewing model rights, download `rmvpe.onnx` directly to the Seagate `models/audio_analysis` folder; verify canonical SHA-256 before inference. Do not commit weights or duplicate model downloads.
-3. **Real benchmark:** Run the CLI on the original 9.195 s recording, save JSON to `outputs/previews`, and report CPU latency, voiced overlap, pitch disagreement and octave-like mismatches. Do not claim RMVPE is more accurate until verified against known reference pitches.
-4. Compare both estimators on several permissioned annotated clips, visualize their pitch curves, tune voicing thresholds and resolve glide over-segmentation/octave errors with measurement.
-5. Only then choose a main pitch estimator and progress to authorized singing voice conversion and later musical-director agent intelligence.
+1. **Ground-truth musical validation:** Use a few permissioned recordings of controlled, known notes and short slides. Mark the reference pitches and approximate note transitions; calculate YIN and RMVPE pitch error, voicing precision and note-boundary error. Do not accept RMVPE as the production default solely on agreement or one benchmark.
+2. **Diagnose the 8.90–8.94 s passage:** Compare the original waveform/audio by listening and inspect whether YIN's brief octave-down jump is a tracking error. RMVPE appears more continuous in JSON but remains a hypothesis until independently verified.
+3. **Improve pitch visualization and note segmentation:** Add native plots/diagnostics to the application and separate continuous vibrato/glissando from distinct sung notes. Existing 36 YIN vs 43 RMVPE candidate segments do not establish real note counts.
+4. **Run repeatable Windows acceptance:** Report the full pytest result (expected 41 tests); optionally repeat the same benchmark several times to distinguish warm-up from steady-state CPU inference and record model checkpoint SHA if needed. Reuse the existing file on the Seagate; no additional weight downloads.
+5. After validating musical accuracy, select the appropriate estimator and proceed to authorized male/female voice conversion and later intelligent Director/Collaborative modes.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-23. **Starting repository head:** `432d535` on `main` (first real audio analysis recorded).
+**Date:** 2026-11-23. **Starting GitHub head:** `acb102e` on `main`.
 
-**Goal:** Implement next milestone: optional learned RMVPE pitch estimator and comparison with existing YIN on the same recording.
+**Windows benchmark completed:** User ran `.\.venv\Scripts\python -m ai_singer.pitch_benchmark "$clip" --output "$report"` from their backend virtual environment. Program saved the report to `D:\AI_Singer\outputs\previews\yin-rmvpe-comparison.json`. The user uploaded the full JSON report to ChatGPT.
 
-**Implemented:** CPU-capable ONNX integration via optional `rmvpe-onnx` dependency, no automatic weights download, checksum-verified Seagate model path, `POST /analyze?estimator=rmvpe`, 10 ms-to-20 ms pitch alignment and side-by-side benchmark CLI comparing pitch/voicing disagreements, octave-like differences and runtime. Default YIN behavior is preserved. No song generation, training or LLM added.
+**Measured on 9.195 s recording:** YIN 11.342 s, RMVPE 2.102 s (~5.40x faster this run); 460 pitch frames; 390 YIN voiced, 393 RMVPE voiced, 388 both voiced; median absolute model disagreement 11 cents; 355 of 388 shared-voiced frames (91.5%) within 50 cents. Candidate note events YIN 36, RMVPE 43. Three consecutive frames near 8.90–8.94 seconds differed by roughly an octave: YIN's low excursion near MIDI 44 vs RMVPE near MIDI 56. The latter seems more continuous, but the true pitch cannot be established without listening to the original audio.
 
-**Tests:** In isolated Linux Python 3.13 environment, a mirrored backend suite passed **41 tests** (29 existing + 12 new). `compileall` and offline editable packaging passed. The neural checkpoint, `rmvpe-onnx`, real inference and Windows Py3.12 acceptance are **not tested** in that environment.
+**What this verifies:** Third-party ONNX model loading and actual RMVPE inference worked in the user's Windows environment; both estimators ran on the same decoded clip and returned aligned predictions; output was written to the configured external HDD. **What this does not verify:** Ground-truth singing accuracy, acceptable note segmentation, repeatable latency, full Windows pytest run (41 tests expected), checkpoint hash manually shown, or model licensing.
 
-**Previous Windows validation:** User verified FFmpeg and `Dimpu`, and `POST /analyze` returned HTTP 200 for a 9.195-second real recording, 460 pitch frames and 36 approximate notes. This is not evidence of correct note count; full Windows pytest after test-ID fix still unreported.
+**Artifacts:** A single comparative pitch-contour PNG was generated in the conversation workspace from the user's report. Neither raw user recording, model weights, nor benchmark JSON were committed to GitHub; keep large/sensitive assets off Git.
 
-**Changed files:** `backend/ai_singer/audio_analysis.py`, `main.py`, `pyproject.toml`, new `rmvpe_pitch.py`, `pitch_benchmark.py`, `tests/test_rmvpe_pitch.py`, plus this handoff and `README.md`. See git history for resulting commit.
+**Repository change this session:** Updated this document with measured user-reported performance, diagnostics and precise next priorities. No application source code modified. See Git history for commit.
 
-**Stop point:** Windows dependency installation, explicit model weight acquisition on HDD, SHA check and first genuine YIN/RMVPE benchmark remain to be done by user. No model weights downloaded or committed by the assistant.
+**Next task:** Ground-truth pitch/note validation and visualization/segmentation improvement, including specific inspection of the YIN octave-like excursion, before choosing RMVPE as the production default.
