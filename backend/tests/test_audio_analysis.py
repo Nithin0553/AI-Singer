@@ -65,7 +65,12 @@ def test_analysis_reports_unvoiced_silence() -> None:
     assert all(point["frequency_hz"] is None for point in result["pitch_track"])
 
 
-@pytest.mark.parametrize("data", [b"", b"bad wav data", b"x" * (10 * 1024 * 1024 + 1)])
+# Explicit IDs prevent huge PYTEST_CURRENT_TEST values on Windows.
+@pytest.mark.parametrize(
+    "data",
+    [b"", b"bad wav data", b"x" * (10 * 1024 * 1024 + 1)],
+    ids=["empty", "invalid-format", "oversized"],
+)
 def test_invalid_audio_is_rejected(data: bytes) -> None:
     with pytest.raises(AudioInputError):
         decode_audio(data)

@@ -111,7 +111,7 @@ No `frontend/`, music model weights or data assets are committed.
 
 ## 8. Known Issues
 
-- **Windows regression-test errors unresolved:** Latest user-run pytest: `28 passed, 1 warning, 2 errors`; observed `ValueError: the environment variable is longer than 32767 characters`. Exact test names and full traceback are required. M4A test fixture generates AAC by calling `subprocess.run` and is one investigation target, but **not a confirmed root cause**. Inspect lengths of environment variables without printing their contents.
+- **Windows-specific pytest test-ID defect identified and patched:** The `test_invalid_audio_is_rejected` parametrization contained `b"x" * (10 * 1024 * 1024 + 1)`. Pytest previously used its literal value in the generated test ID and `PYTEST_CURRENT_TEST` environment variable, exceeding Windows' 32,767-character per-value limit during setup/teardown. The very long string of `x` in the user output matches this. Added explicit short IDs (`empty`, `invalid-format`, `oversized`) without reducing the oversized test input. This matches upstream pytest issue #6881. The patch is tested in an isolated three-case reproducer, but the full Windows suite must be rerun.
 - **Real user file still unverified:** Screenshot shows an M4A upload rejected by the old non-seekable decoder with HTTP 422. The new seekable-file implementation passed generated M4A tests, but the exact `Test 1.m4a` was not provided. If it still fails, inspect FFprobe metadata and playback.
 - `GET /analyze` returns HTTP 405 by design; use `POST /analyze` multipart upload in `/docs`.
 - Heuristic YIN pitch extraction can miss vibrato, ornaments, slides, short notes, soft singing and noisy vocals; no end-to-end voice fidelity demonstrated.
@@ -131,7 +131,7 @@ No `frontend/`, music model weights or data assets are committed.
 
 **Previously user-reported Windows checks:** FFmpeg/FFprobe 9.1 available, Seagate `Dimpu` configured, existing 9 backend tests passed, API `/health` and `/ready` returned HTTP 200. The user also reported one failed M4A `POST /analyze` (422) and expected `GET /analyze` (405) with the prior decoder.
 
-**New user-reported Windows run:** `28 passed, 1 warning, 2 errors in 14.50s`; one shown error fragment is `ValueError: the environment variable is longer than 32767 characters`. **The full traceback, exact tests, and relevant environment-variable lengths are still missing.** Uvicorn started and then shut down cleanly. No fresh `POST /analyze` result was provided. New fix with FFmpeg 9.1 remains unverified end-to-end on user's actual M4A; singer pitch accuracy, GPU, or AI models have not been tested.
+**Prior user-reported Windows run:** `28 passed, 1 warning, 2 errors in 14.50s` and the enormous line of `x` characters followed by `ValueError: the environment variable is longer than 32767 characters`. The output and source identify a parametrized pytest ID exceeding the Windows environment-variable limit. The user's length-only `Get-ChildItem Env:` check showed no variables above 32,000 after pytest, and `git status --short` was empty; that is consistent with a **transient** `PYTEST_CURRENT_TEST` value, not a persistently oversized system environment variable. Two reported errors are consistent with pytest setup and teardown for one long-ID test, though the traceback was not supplied. **After applying short IDs**, a separate isolated reproduction passed **3/3** with the original >10 MiB payload and short collected test names. The full Windows backend suite, new M4A decoder on Windows, and user's original audio recording are not yet verified.
 
 ## 10. Development Environment
 
@@ -188,22 +188,21 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. **Investigate Windows-only test errors before changing dependencies.** In the existing backend directory, run `.\.venv\Scripts\python -m pytest -q --tb=short`. Collect the two error headings/test names and traceback, especially the line where the 32,767-character environment-variable limit occurs. Do not share environment-variable values or secrets.
-2. Inspect variable **lengths only** in the same PowerShell session: `Get-ChildItem Env: | Where-Object { $_.Value.Length -ge 32000 } | Select-Object Name,@{Name='Length';Expression={$_.Value.Length}}`. Run `git status --short` to distinguish local edits from the remote suite. If `pytest` otherwise succeeds, this may be isolated to the FFmpeg M4A generation fixture; confirm via traceback before adjusting subprocess behavior.
-3. Relaunch Uvicorn after its observed clean shutdown, then retry the original 1–15 s `Test 1.m4a` using Swagger **POST /analyze**, and report HTTP response. This is independent of test collection errors.
-4. Fix only the demonstrated issue and add a meaningful Windows regression check; update this handoff and verify before pushing.
-5. After the recording decodes, compare measured pitches and rests against the original singing and add visual diagnostics. Later assess licensed singing conversion and agent intelligence.
+1. **Windows acceptance of parametrization fix:** Stop any active backend server if necessary, `git pull --ff-only` in the existing clone, and run `.\.venv\Scripts\python -m pytest -q` from `backend/`. The expected count remains **29 tests** (with a possible nonfatal Starlette warning), but the new Windows result is not yet known.
+2. If there is any remaining failure, collect the exact short traceback and test name rather than modifying system-wide environment variables or suppressing tests. The test-ID patch specifically addresses the 32,767-character `PYTEST_CURRENT_TEST` issue.
+3. Restart Uvicorn in a PowerShell session where `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'` has configured the storage variables. Retry the original 1–15 s `Test 1.m4a` via Swagger **POST /analyze** and report HTTP result. Check `ffprobe` metadata only if it still fails.
+4. Once the real recording decodes, inspect musical pitch candidates against the user's reference and introduce visual diagnostics and accuracy evaluation. Later test authorized singing conversion and director/creative agent workflows.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-23. **Starting commit:** `65413e4` on `main`.
+**Date:** 2026-11-23. **Starting GitHub commit:** `2249668` on `main`.
 
-**Windows report from user:** Backend test summary: `28 passed, 1 warning, 2 errors in 14.50s`; shown exception `ValueError: the environment variable is longer than 32767 characters`. Full traceback and failing test names unavailable. Uvicorn reloader started, child application startup completed, then server and reloader both shut down cleanly. There was no visible subsequent `POST /analyze` request in the provided logs.
+**New user diagnostics:** Retried pytest on Windows, resulting `28 passed, 1 warning, 2 errors in 14.25s`. The output included a very long repeated `x` parameter and `ValueError: the environment variable is longer than 32767 characters`. The post-test PowerShell query found no environment variables with length >=32,000; `git status --short` returned no changes.
 
-**Investigated:** Existing source and tests from GitHub. Two new tests use the shared `m4a_audio` fixture, which invokes FFmpeg to generate a sample. That fixture is a possible Windows failure site, **not yet confirmed**. The earlier Linux suite passed 29 tests. Latest Windows totals indicate 30 test outcomes, so inspect local working tree and actual test collection rather than assuming the suite matches exactly.
+**Root cause identified from repository source and pytest upstream:** The parametrized `test_invalid_audio_is_rejected` constructs `b"x" * (10 * 1024 * 1024 + 1)`; auto-generated test IDs can embed this enormous value into ephemeral `PYTEST_CURRENT_TEST`, which exceeds Windows' environment variable limit. The two errors are consistent with setup/teardown (not definitively confirmed without full traceback). Upstream pytest issue: https://github.com/pytest-dev/pytest/issues/6881 .
 
-**Changes:** Updated this handoff to record the unresolved environment-related test errors and their recommended diagnostics; no application code or machine settings changed. Git commit for this documentation change is in history.
+**Fix:** Added explicit, short test IDs to the three invalid-audio parameter cases while retaining the >10 MiB test. No runtime FFmpeg, application behavior, dependencies, HDD configuration, or system-wide environment variables changed.
 
-**Verification:** Inspected GitHub files/history and user's terminal output; did not replicate Windows error. No claim of successful Windows M4A testing.
+**Verification:** Isolated regression test with all three parameter cases, short pytest-collected names, and original oversized payload passed **3/3** in Linux container. Earlier full backend suite had **29 passed in Linux**, but the full suite has not been rerun on Windows with this patch. Source/test review and GitHub readback required after commit.
 
-**Next:** Request `python -m pytest -q --tb=short` tracebacks, and PowerShell lengths of large environment variables without printing values; check `git status --short`. Separately restart Uvicorn and retry the real M4A upload.
+**Next task:** User updates local checkout and reruns `pytest -q` to confirm Windows acceptance, then retries the original M4A file using `POST /analyze`.
