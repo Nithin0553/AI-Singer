@@ -2,7 +2,7 @@
 
 > **Persistent handoff:** Read this file at the beginning of each development session. Then inspect current source files and recent Git commits; this document is not a substitute for verification.
 >
-> **Last reviewed:** 2026-11-23 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Windows Pitch Lab, real YIN/RMVPE inference, and the slow-glide fix verified on the user's laptop; **84 tests passed in 6.99 s**. Both estimators now identify A3 → C4 → upward glide → D4 → A3 on the synthetic calibration. First human vocal `Test 2.m4a` has now been compared with **both YIN and real RMVPE** in user's Pitch Lab (625 frames, 4-cent median inter-model disagreement). Independent ground-truth musical accuracy is still unverified.
+> **Last reviewed:** 2026-11-23 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Windows Pitch Lab, real YIN/RMVPE inference, and the slow-glide fix verified on the user's laptop; **84 tests passed in 6.99 s**. Both estimators now identify A3 → C4 → upward glide → D4 → A3 on the synthetic calibration. First human vocal `Test 2.m4a` has now been compared with **both YIN and real RMVPE** in user's Pitch Lab (625 frames, 4-cent median inter-model disagreement). Voicing-only differences are now explicitly grouped and shown in Pitch Lab; independent ground-truth musical accuracy is still unverified.
 >
 > **Verification boundary:** Repository contents/history were checked through GitHub. Hardware and tool versions below are from **user-provided Windows PowerShell output**; no direct access to or verification on the laptop or external disk.
 
@@ -63,14 +63,14 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 
 - `backend/ai_singer/audio_analysis.py`: YIN/RMVPE frame estimates, now delegates event grouping to `musical_events.py`.
 - `backend/ai_singer/musical_events.py`: stable pitch cores, candidate glides and short octave anomaly detection; preserves raw measurements.
-- `backend/ai_singer/pitch_benchmark.py`: joint estimators, continuous disagreement spans and stable-core summary.
+- `backend/ai_singer/pitch_benchmark.py`: joint estimators, continuous pitch-disagreement spans, separate voicing-disagreement spans, stable-core summary.
 - `backend/ai_singer/pitch_validation.py`: scores independently known note/rest labels.
 - `backend/ai_singer/calibration.py`: generates an exact-pitch synthetic WAV and reference under configured HDD storage and optionally scores YIN/RMVPE.
 - `backend/tests/test_calibration.py`: 11 new tests for tones, rests, glide, reference, storage and reports.
 - `backend/ai_singer/main.py`: existing routes plus `POST /compare` and local `GET /pitch-lab`.
 - `backend/ai_singer/static/pitch_lab.html`: dependency-free local inspection page with graph and audio playback.
 - `backend/examples/pitch-reference.example.json`: reference interval format example (not a true annotated sample).
-- `backend/tests/test_musical_events.py`, `test_pitch_validation.py`: synthetic notes/slides/octave cases, reference checks, API/visualization tests.
+- `backend/tests/test_musical_events.py`, `test_pitch_validation.py`, new `test_voicing_disagreements.py`: synthetic notes/slides/octave cases, reference checks, comparison voicing gaps, API/visualization tests.
 - Existing `backend/tests/test_api.py`, `test_storage.py`, `test_audio_analysis.py`, `test_rmvpe_pitch.py`: retained.
 - `backend/pyproject.toml`: includes the static HTML in Python package.
 - `scripts/Initialize-Storage.ps1`, `README.md`, `PROJECT_CONTEXT.md`, `.gitignore`: storage, documentation, continuity and exclusions.
@@ -95,6 +95,8 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 
 **First Test 2 YIN/RMVPE comparison verified by user's exported Pitch Lab report:** 12.48 s and 625 time frames; YIN detects 363 voiced, RMVPE 385, overlapping 362. Median absolute disagreement is **4 cents** on overlapping voiced frames; **361/362 (99.7%)** overlapping frames differ by ≤50 cents (max observed about 55 cents at first onset), and neither has an octave-like disagreement or flagged pitch-disagreement interval. The four stable-core MIDI regions are **[46,49,55,46]** (A♯2, C♯3, G3 rounded from pitch close to F♯3/G3 boundary, A♯2). YIN core windows: 1.04–2.40, 5.32–6.06, 6.36–9.26, 10.18–10.90 s; RMVPE: 1.04–2.40, 5.30–5.94, 6.52–9.12, 10.16–10.72 s. RMVPE produces 6 transition candidates vs YIN 4. Most notable missing-voicing differences: RMVPE reports continuous pitch across **6.16–6.36 s (10 frames)** and **9.26–9.38 s (6 frames)** when YIN returns null; there are other smaller gaps, totaling 23 RMVPE-only voiced frames vs 1 YIN-only. The 6.16–6.36 s area has median RMS 0.135 (significant signal energy), whereas 9.26–9.38 s has median RMS 0.014 (quieter), so continued sound does not alone establish correct pitch. Model timing in this report: YIN 0.111 s, RMVPE 0.816 s (do not extrapolate to typical speed). This agreement is **not** ground-truth note or expressive accuracy.
 
+**Voicing-difference visibility added:** `compare_results` now returns independent `voicing_disagreement_intervals` (with a start/end, frame count and `voiced_by` model) and counts `rmvpe_only_voiced_frames`/`yin_only_voiced_frames`. Separate amber/light-blue bands and clickable timestamp chips appear in Pitch Lab without changing existing red pitch-review bands or raw pitch tracks. The previously uploaded Test 2 JSON replay yields **six spans**: RMVPE-only 0.74–0.78 s (2 frames), 4.90–4.98 s (4), 6.16–6.36 s (10), 9.26–9.38 s (6), 9.40–9.42 s (1), and YIN-only 4.82–4.84 s (1). The local source compatibility/logic tests succeeded, but a final user Windows browser acceptance is still pending. These are disagreement markers, **not ground-truth errors**.
+
 **Still unimplemented:** General expressive note understanding, automatic source note onset recognition, original-voice playback synthesis, lyric/phoneme understanding, agent reasoning, voice conversion or full studio.
 
 ## 7. Technical Decisions
@@ -110,7 +112,7 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 ## 8. Known Issues
 
 - Stable-core classification uses pitch stability windows and minimum event lengths. It remains heuristic, with provisional thresholds and **unverified note boundaries**. Slow slides, vibrato, fast ornaments, breaths and expressive transitions may still be mislabeled.
-- **Test 2 usability gap:** The comparison JSON reports zero `disagreement_intervals` because that field covers overlapping voiced pitch differences, even though RMVPE has **23 additional voiced frames** not detected by YIN (notably a 10-frame gap around 6.16–6.36 s and a 6-frame gap around 9.26–9.38 s). A future comparison enhancement should add separate, reviewable `voicing_disagreement_intervals` instead of treating pitch agreement as evidence of complete voicing agreement. Validate against audio/independent labels before treating RMVPE-only frames as correct.
+- **Test 2 voicing visibility gap addressed in code:** Previously zero pitch-disagreement spans hid 23 RMVPE-only vs 1 YIN-only voiced frames. The new `voicing_disagreement_intervals` and colored Pitch Lab regions expose these while keeping pitch disagreement independent. Need real Windows UI acceptance and independently annotated voice validation before claiming one model is correct.
 - A short octave-like YIN drop near 8.90–8.94 s is a **review candidate**, not automatically fixed. No original raw user recording was supplied to compare by listening. RMVPE remains an experiment, not a proven production choice.
 - `POST /compare` invokes both estimators; CPU runtime may be >10 seconds on this laptop. No request queue, concurrent-user throttling, or broader production security hardening has been implemented. The browser page should be run locally only.
 - The new generator makes known-reference synthetic audio with a matching score file; its success does **not** establish human singer accuracy. Moving slide and onset boundaries are intentionally excluded from the *existing score tool*. The previous example file remains only a format illustration.
@@ -156,26 +158,22 @@ Continue to use `AI_SINGER_STORAGE_ROOT` pointing to Seagate `Dimpu` (currently 
 
 ## 12. Next Steps
 
-1. **Improve comparison visibility, not pitch measurements:** Test 2 has 23 RMVPE-only voiced frames vs 1 YIN-only; `disagreement_intervals` is empty because that tracks pitch differences only when both voiced. Add **separate voicing-disagreement spans** to the `/compare` JSON and Pitch Lab graph with regression tests; emphasize the 6.16–6.36 s and 9.26–9.38 s gaps while preserving raw pitch observations and current pitch disagreement fields.
-2. **Verify actual vocal continuity:** Listen to the original `Test 2.m4a` around the ascending 5.94–6.52 s passage and descending 9.12–9.42 s region. The first has significant RMS while YIN loses pitch; the second gets quieter. RMVPE's uninterrupted predictions are plausible but not independent truth. Distinguish breaths, transients and sung tone.
-3. **Independently annotated singing pitch:** Record a consented short phrase with reference tones before recording (not audible beneath the singer); annotate *performed* stable-note and rest intervals plus start/stop/slide changes. `Test 2`'s note labels and ground-truth frequencies were not independently provided.
-4. Score both model tracks with `pitch_validation`; evaluate note boundaries and glides as distinct tasks. Target any real, measurable errors with tests; do not optimize merely for YIN/RMVPE agreement.
-5. After credible real-singing accuracy evidence, build a limited rights-cleared singing voice-conversion prototype, then director/collaborative feedback workflow.
+1. **Windows acceptance for the voicing-disagreement UI:** Pull the latest `main`, run `backend/.venv/Scripts/python -m pytest -q`, then restart the local Uvicorn server. Re-analyze `Test 2.m4a` in Compare mode. Expect an amber highlighted 6.16–6.36 s passage and another at 9.26–9.38 s, separate from red pitch-review bands. Click the timestamp chips below the graph and confirm playback seeks to each range.
+2. **Validate new JSON:** Export Pitch Lab result and inspect `agreement.voicing_disagreement_intervals`, `rmvpe_only_voiced_frames` and `yin_only_voiced_frames`; expect 23 RMVPE-only and 1 YIN-only frames in six spans on the same recording. Red pitch-disagreement count should remain zero. If results vary, compare raw tracks before interpreting performance.
+3. **Human singing ground truth:** Independently annotate played pitch references, actual sustained notes/rests and expressive changes in 2–3 rights-cleared clips. A single additional RMVPE voiced frame might be noise, transient, or correct tone: **never automatically override YIN**.
+4. Separate onset, glide, voicing and held-note scoring; improve uncertain heuristics based on measured failures, not purely model agreement.
+5. Only after sufficiently reliable real-vocal interpretation, start a small permissioned singing voice-conversion proof of concept and eventually conversational Director/Collaborative Mode.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-23. **Starting GitHub head:** `3a6caa8` on `main`.
+**Date:** 2026-11-23. **Starting GitHub main head:** `5461683acd27e4a2885afa3644e434399a48189f` (recorded Test 2 model agreement and voicing discrepancies).
 
-**User follow-up:** Uploaded `ai-singer-pitch-report (3).json` and screenshot after being asked to analyze `Test 2.m4a` with both estimators in Pitch Lab. The report's duration (**12.48 s**) and prior audio analysis (**625 pitch frames**) match the actual Test 2 recording.
+**User approved implementation:** Expose YIN-only vs RMVPE-only voiced time ranges as a separate, actionable Pitch Lab review layer; do not change the existing pitch-agreement logic or any model pitch observations.
 
-**Real model comparison:** YIN 363 voiced frames; RMVPE 385; overlap 362; median absolute pitch disagreement **4 cents**, **361/362 (99.7%)** jointly voiced frames within 50 cents; no octave-like disagreements and no flagged pitch-disagreement spans. Both output four candidate stable regions around MIDI 46, 49, 55, 46 with roughly matching time spans. The high passage is near the F♯3/G3 boundary; labels are heuristic and sensitive to rounding. RMVPE provides six candidate transitions and YIN four. RMVPE follows a rising section ~5.94–6.52 s and a falling section ~9.12–10.16 s, including areas where YIN briefly stops voicing.
+**Implemented:** `compare_results` now computes mutually exclusive, chronologically ordered contiguous `voicing_disagreement_intervals` with `start_seconds`, `end_seconds`, `frame_count`, `voiced_by`, `classification`, `status`; also separately counts `yin_only_voiced_frames` and `rmvpe_only_voiced_frames`. It leaves the older `disagreement_intervals` and statistics unchanged. Pitch Lab shades RMVPE-only voiced intervals **amber**, YIN-only **light blue**, retaining **red** for pitch/octave disagreements. A concise review list (up to 12 longest, displayed chronologically) lets users click timestamps to seek the selected audio; legend and summary metrics identify the difference. One-frame disagreements are preserved.
 
-**Specific voicing discrepancy:** 23 RMVPE-only frames versus 1 YIN-only. RMVPE-only gaps include 6.16–6.36 s (10 frames; median frame RMS ~0.135) and 9.26–9.38 s (6 frames; median RMS ~0.014). Other brief differences near onsets and transitions. No pitch-disagreement span appears because the benchmark currently excludes frames where either model says unvoiced. This is a **review visibility gap**, not proof RMVPE is always correct.
+**Verification:** Dedicated local tests check chronological multi-frame and one-frame gaps, preservation of octave review, zero-voiced cases, nonstandard sample hop, timeline rejection, Test 2-like 625-frame six-span scenario without committing the actual recording, and HTML review elements. The user's exact uploaded Test 2 JSON was replayed locally: **23 RMVPE-only**, **1 YIN-only**, **6 spans** including **6.16–6.36 s** and **9.26–9.38 s**, no red pitch-disagreement span. This is algorithm/UI review metadata, **not accuracy proof**. Earlier Windows backend passed 84 tests before this update; Windows acceptance of the new version remains pending.
 
-**Timing from uploaded export:** YIN 0.111 seconds, RMVPE 0.816 seconds in this single run. Earlier runs vary dramatically; do not infer steady-state latency or quality rankings.
+**Changes:** `backend/ai_singer/pitch_benchmark.py`, `backend/ai_singer/static/pitch_lab.html`, new `backend/tests/test_voicing_disagreements.py`, `README.md`, `PROJECT_CONTEXT.md`. No model weights, user recordings, generated audio or other large assets committed.
 
-**Evidence boundaries:** This is the first confirmed YIN/RMVPE comparison on a human singing recording, not a known-note scoring experiment. Agreement is not pitch accuracy, and the four proposed note labels are approximate. Original recording is available as user upload; no separate trusted ground-truth labels or performed-onset annotation supplied. The assistant generated a diagnostic YIN/RMVPE plot as a conversation artifact only. Neither user audio nor plots nor models were committed.
-
-**GitHub changes:** Documentation-only update to the handoff; no source code or weights changed. See latest commit history for SHA.
-
-**Next exact task:** Add separate voiced/unvoiced disagreement spans to Pitch Lab comparison while preserving current pitch disagreement metrics, then collect independent annotations to test real musical accuracy.
+**Next exact task:** Pull and run on Windows, ensure all tests pass, inspect Test 2 with colored voicing gaps, click to seek, and export the updated JSON. Then collect independent ground truth before choosing an estimator for the singing agent.

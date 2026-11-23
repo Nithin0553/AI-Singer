@@ -176,3 +176,14 @@ Without `--compare`, it generates the audio/reference without loading RMVPE. It 
 The original pitch detector remains unchanged. Musical event grouping now checks pitch movement over a longer interval as well as local stability, so a gentle C4-to-D4 slide is not mislabeled as one long C♯4. Both estimators' uploaded calibration tracks now produce **A3, C4, D4, A3** stable cores with an intervening upward glide candidate. Events are still *approximate*, not confirmed notes or onsets in human performances. No weights or new dependencies are required.
 
 To verify the change locally, run `git pull --ff-only`, then `.\\.venv\\Scripts\\python -m pytest -q` from `backend/`; restart the API before rerunning Pitch Lab. The exact Windows test result for this fix remains pending.
+
+### Reviewing voicing differences
+
+In **Compare YIN + RMVPE** mode, Pitch Lab now distinguishes:
+- **Red bands:** pitch disagreement (or octave-like disagreement) when both models report a pitch.
+- **Amber bands:** RMVPE reports pitch but YIN does not.
+- **Light-blue bands:** YIN reports pitch but RMVPE does not.
+
+The new comparison JSON keeps the original `agreement.disagreement_intervals` unchanged and adds `voicing_disagreement_intervals`, `rmvpe_only_voiced_frames`, and `yin_only_voiced_frames`. Click a colored band on the plot or a listed time range under **Voicing differences** to seek and listen to the original recording. Each span indicates **a model disagreement**, not which model is correct. Short one-frame differences remain visible, though they can reflect uncertainty around an onset.
+
+Re-analyze your original `Test 2.m4a` using the new version. The expected comparison from the previously uploaded report has **23 RMVPE-only voiced frames** and **1 YIN-only**, grouped into **six intervals**, including **6.16–6.36 s** and **9.26–9.38 s**. These are not independently verified correct pitches or sung-note boundaries. No model weights or new dependencies are needed.

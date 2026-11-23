@@ -27,10 +27,16 @@ audio{width:100%;margin-top:10px}
 .metrics span{background:#eef3f8;padding:11px;border-radius:9px}
 .legend b{display:inline-block;width:16px;height:4px;margin-right:5px;vertical-align:middle}
 .note{font-size:13px}
+#voicingReview{margin-top:18px}
+#voicingReview h3{font-size:15px;margin:0 0 5px}
+.review-gaps{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.review-gaps button{border:1px solid #e5ba75;background:#fff0d9;color:#744718;padding:8px 11px;font-size:12px}
+.review-gaps button.yin{border-color:#9abce8;background:#e5f0ff;color:#255584}
+.review-gaps button:focus-visible{outline:3px solid #1c5caa;outline-offset:2px}
 </style>
 </head>
 <body><main>
-<header><h1>AI Singer / Pitch Lab</h1><p>Listen to your recording while inspecting YIN, RMVPE, stable pitch regions, and possible octave errors.</p></header>
+<header><h1>AI Singer / Pitch Lab</h1><p>Listen to your recording while comparing YIN, RMVPE, stable pitch regions, and pitch or voicing differences.</p></header>
 <section class="panel">
 <h2>Analyze a completed phrase</h2>
 <p class="note">1–15 seconds, up to 10 MiB. Local experimental review tool; uploads are not intentionally saved permanently.</p>
@@ -46,10 +52,15 @@ audio{width:100%;margin-top:10px}
 <section id="results" class="panel hidden">
 <h2>Pitch contour and review flags</h2>
 <div class="metrics" id="metrics"></div>
-<div class="legend"><span><b style="background:#0c67b7"></b>YIN</span><span><b style="background:#e07826"></b>RMVPE</span><span><b style="background:#1e8569"></b>Stable pitch cores</span><span><b style="background:#c64949"></b>Needs review</span></div>
-<canvas id="plot" width="1050" height="420" role="img" aria-label="Pitch curve over time, blue for YIN and orange for RMVPE; reviewed passages shaded."></canvas>
-<p class="note">Click the plot to seek the original audio. Green marks steady pitch *cores*, not necessarily true note onsets. Red indicates estimator disagreement or suspected octave mistakes.</p>
+<div class="legend"><span><b style="background:#0c67b7"></b>YIN</span><span><b style="background:#e07826"></b>RMVPE</span><span><b style="background:#1e8569"></b>Stable pitch cores</span><span><b style="background:#c64949;height:8px"></b>Pitch disagreement / octave review</span><span><b style="background:#f3bd67;height:8px"></b>RMVPE-only pitch</span><span><b style="background:#aacbf4;height:8px"></b>YIN-only pitch</span></div>
+<canvas id="plot" width="1050" height="420" role="img" aria-label="Pitch over time: blue YIN, orange RMVPE, red pitch disagreement, amber RMVPE-only pitch, light blue YIN-only pitch."></canvas>
+<p class="note">Click the plot to seek the recording. Green marks approximate stable pitch cores. Red indicates pitch disagreement or possible octave mistakes; amber and light blue indicate one estimator reported pitch while the other did not.</p>
 <div id="summary"></div>
+<section id="voicingReview" class="hidden" aria-label="Voicing difference review">
+<h3>Voicing differences</h3>
+<p class="note">One estimator reports pitch while the other does not. Select a time to listen; neither estimate is automatically correct.</p>
+<div id="voicingLinks" class="review-gaps"></div>
+</section>
 </section></main>
 <script>
 (() => {
@@ -59,6 +70,7 @@ audio{width:100%;margin-top:10px}
   const player = id("player"), canvas = id("plot"), ctx = canvas.getContext("2d");
   const results = id("results"), metrics = id("metrics"), summary = id("summary");
   const run = id("run"), download = id("download");
+  const voicingReview = id("voicingReview"), voicingLinks = id("voicingLinks");
   const W = canvas.width, H = canvas.height, left = 60, right = 20, top = 20, bottom = 55;
   let data = null, audioURL = null, low = 48, high = 72, duration = 1;
   const px = t => left + t / duration * (W - left - right);
@@ -90,6 +102,11 @@ audio{width:100%;margin-top:10px}
     high = values.length ? Math.max(72, Math.ceil(Math.max(...values)+2)) : 72;
     duration = data.duration_seconds;
     ctx.clearRect(0,0,W,H); ctx.fillStyle="#f9fbfd"; ctx.fillRect(0,0,W,H);
+    const voicingFlags = data.agreement?.voicing_disagreement_intervals || [];
+    voicingFlags.forEach(e => {
+      ctx.fillStyle = e.voiced_by === "rmvpe" ? "#ffe4b5" : "#dbeaff";
+      ctx.fillRect(px(e.start_seconds),top,Math.max(2,px(e.end_seconds)-px(e.start_seconds)),H-top-bottom);
+    });
     const flagged = data.agreement ? data.agreement.disagreement_intervals : [
       ...(a?.octave_jump_candidates || []), ...(b?.octave_jump_candidates || [])
     ];
@@ -114,13 +131,42 @@ audio{width:100%;margin-top:10px}
       ctx.moveTo(px(player.currentTime),top);ctx.lineTo(px(player.currentTime),H-bottom);ctx.stroke();
     }
   }
+  function showVoicingIntervals(spans) {
+    voicingLinks.replaceChildren();
+    voicingReview.classList.toggle("hidden", spans.length === 0);
+    const prioritized = [...spans].sort((a, b) => b.frame_count - a.frame_count)
+      .slice(0, 12).sort((a, b) => a.start_seconds - b.start_seconds);
+    for (const span of prioritized) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = span.voiced_by === "yin" ? "yin" : "rmvpe";
+      const model = span.voiced_by === "yin" ? "YIN" : "RMVPE";
+      button.textContent = span.start_seconds.toFixed(2) + "–" +
+        span.end_seconds.toFixed(2) + "s · " + model + " only";
+      button.setAttribute("aria-label", "Seek to " + span.start_seconds.toFixed(2) +
+        " seconds; only " + model + " reports pitch");
+      button.addEventListener("click", () => {
+        if (!Number.isFinite(player.duration)) return;
+        player.currentTime = Math.max(0, Math.min(player.duration, span.start_seconds));
+        draw();
+      });
+      voicingLinks.append(button);
+    }
+  }
   function show(result) {
     data=result;results.classList.remove("hidden");metrics.replaceChildren();summary.replaceChildren();
+    showVoicingIntervals(result.agreement?.voicing_disagreement_intervals || []);
     addMetric("Duration",result.duration_seconds.toFixed(2)+"s");
     if (result.agreement) {
       addMetric("Both voiced",result.agreement.overlapping_voiced_frames);
       addMetric("Median difference",result.agreement.median_absolute_disagreement_cents === null ? "—" : result.agreement.median_absolute_disagreement_cents+" cents");
-      addMetric("Review intervals",result.agreement.disagreement_intervals.length);
+      addMetric("Pitch review intervals",result.agreement.disagreement_intervals.length);
+      const voiceSpans = result.agreement.voicing_disagreement_intervals || [];
+      addMetric("Voicing gaps",voiceSpans.length);
+      if (Number.isInteger(result.agreement.rmvpe_only_voiced_frames)) {
+        addMetric("RMVPE only",result.agreement.rmvpe_only_voiced_frames+" frames");
+        addMetric("YIN only",result.agreement.yin_only_voiced_frames+" frames");
+      }
     }
     const track=result.rmvpe || result.yin || result;
     addMetric("Stable pitch cores",track.note_events.length);

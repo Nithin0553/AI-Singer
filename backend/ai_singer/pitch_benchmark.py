@@ -22,6 +22,22 @@ def compare_results(yin: dict, rmvpe: dict) -> dict:
     r = np.asarray([f["midi_note"] if f["midi_note"] is not None else np.nan for f in r_frames])
     both = np.isfinite(y) & np.isfinite(r)
     distance_cents = np.abs(y[both] - r[both]) * 100
+    yin_only = np.isfinite(y) & ~np.isfinite(r)
+    rmvpe_only = np.isfinite(r) & ~np.isfinite(y)
+    hop_seconds = float(y_frames[1]["time_seconds"] - y_frames[0]["time_seconds"]) if len(y_frames) > 1 else 0.02
+    voicing_spans = []
+    for voiced_by, mask in (("yin", yin_only), ("rmvpe", rmvpe_only)):
+        edges = np.diff(np.r_[False, mask, False].astype(np.int8))
+        for start, stop in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
+            voicing_spans.append({
+                "start_seconds": round(float(y_frames[start]["time_seconds"]), 3),
+                "end_seconds": round(float(y_frames[stop - 1]["time_seconds"] + hop_seconds), 3),
+                "frame_count": int(stop - start),
+                "voiced_by": voiced_by,
+                "classification": "voicing_disagreement",
+                "status": "needs_review",
+            })
+    voicing_spans.sort(key=lambda span: (span["start_seconds"], span["voiced_by"]))
     all_cents = np.full(len(y), np.nan)
     all_cents[both] = distance_cents
     active = np.isfinite(all_cents) & (all_cents >= 100)
@@ -42,6 +58,9 @@ def compare_results(yin: dict, rmvpe: dict) -> dict:
     return {
         "frame_count": len(y),
         "disagreement_intervals": spans,
+        "voicing_disagreement_intervals": voicing_spans,
+        "yin_only_voiced_frames": int(np.count_nonzero(yin_only)),
+        "rmvpe_only_voiced_frames": int(np.count_nonzero(rmvpe_only)),
         "yin_voiced_frames": int(np.count_nonzero(np.isfinite(y))),
         "rmvpe_voiced_frames": int(np.count_nonzero(np.isfinite(r))),
         "overlapping_voiced_frames": int(np.count_nonzero(both)),
