@@ -37,7 +37,7 @@ The minimal API backend is implemented with Python and FastAPI; all other techno
 | Backend | Python 3.12+ / FastAPI / Pydantic / Uvicorn | Minimal health and readiness endpoints implemented |
 | Agent | LangGraph + evaluated GPT API or Qwen | Research proposal; not implemented |
 | Speech instructions | faster-whisper or another multilingual ASR | Not selected or tested for Telugu |
-| Audio | FFmpeg, NumPy, SciPy, librosa | Planned; FFmpeg installation unverified |
+| Audio | FFmpeg, NumPy, SciPy, librosa | Planned; `ffmpeg` not found in the user's current Windows PowerShell PATH |
 | Pitch | RMVPE and/or torchcrepe | Planned comparative evaluation |
 | First singing experiment | RVC-style voice conversion | Not implemented |
 | Controlled synthesis candidate | DiffSinger | Not implemented |
@@ -103,7 +103,9 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 
 **Verified from user-provided Windows test/server logs:** `python -m pytest -q` reports **9 passed, 1 warning in 0.70 seconds**. Uvicorn started, completed application startup, and served `GET /health` and `GET /ready` with HTTP 200. The readiness success is evidence that the configured storage directory passed the backend's basic readiness validation at that moment.
 
-**Not yet verified on laptop:** Detailed disk write/read behavior, model cache paths, FFmpeg installation, model/GPU runtime, or actual audio processing. The GitHub connection cannot directly inspect the laptop.
+**Additional user-reported Windows check:** `ffmpeg -version` returned `CommandNotFoundException` in PowerShell. This indicates the executable was unavailable on PATH in that session; it could be absent or not configured. **No installation has been verified.**
+
+**Not yet verified on laptop:** Disk read/write behavior, cache paths, FFmpeg remediation, model/GPU runtime, or any audio analysis. The GitHub connection cannot directly inspect the laptop.
 
 **Not implemented:** Audio recording, frontend, pitch/timing analysis, singing generation, conversation agent, model downloads, training, dataset pipeline or deployment.
 
@@ -126,7 +128,7 @@ No `frontend/`, singing model, music analysis engine or dataset pipeline exists.
 - `Get-Volume` volume-label lookup is Windows-specific; it intentionally fails on missing or ambiguous labels rather than writing to an unintended drive.
 - Because `D:` uses **exFAT**, some model caches or tools may have limitations with symlinks and permissions. Confirm compatibility and model loading before major downloads.
 - `C:` has ~41 GB free, and GPU is RTX 3050 Ti with 4 GiB VRAM. Large models or training may require smaller configurations or cloud compute.
-- Actual FFmpeg installation, CUDA toolkit and PyTorch runtime are unverified. `nvidia-smi` CUDA support does not verify toolkit installation.
+- FFmpeg CLI unavailable in the user's Windows PowerShell (`CommandNotFoundException`). Install or locate it and verify in a fresh terminal. CUDA toolkit and PyTorch runtime remain unverified; `nvidia-smi` CUDA support does not establish a toolkit installation.
 - `/ready` currently checks an existing absolute writable folder and does not independently prove physical drive identity; rerun the label-based script after reconnecting the HDD, and never rely on an old path.
 - Windows pytest reported one `StarletteDeprecationWarning`: importing `fastapi.testclient` warns that `httpx` with `starlette.testclient` is deprecated and suggests `httpx2`. This is nonfatal; inspect actual versions and upstream guidance before changing dependencies.
 - An incidental `GET /favicon.ico` returned HTTP 404 while browsing API endpoints; there is no frontend/favicon yet, and it is not a failed API health check.
@@ -182,7 +184,7 @@ python -m venv .venv
 
 In a separate terminal, `Invoke-RestMethod http://127.0.0.1:8000/health` should show `ok`, and `Invoke-RestMethod http://127.0.0.1:8000/ready` should show `ready` when the drive folder is available.
 
-Windows pytest, Uvicorn startup, and both endpoint HTTP 200 statuses have been reported successfully. Check `ffmpeg -version` next. New PowerShell terminals require rerunning `Initialize-Storage.ps1` (even if folders already exist).
+Windows pytest, Uvicorn startup, and both endpoint HTTP 200 statuses have been reported successfully. The subsequent `ffmpeg -version` failed (`CommandNotFoundException`). Suggested Windows remediation: run `winget --version`, then `winget install --id Gyan.FFmpeg --exact --source winget` if available, open a new PowerShell window, and check `ffmpeg -version` plus `ffprobe -version`. A new session must rerun `Initialize-Storage.ps1` to configure HDD paths.
 
 ## 11. Model and Storage Configuration
 
@@ -217,7 +219,7 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. **Next:** Confirm `ffmpeg -version` and inspect the Windows test warning's installed package versions if it persists. Avoid needless upgrades while the current backend is working.
+1. **Next:** Resolve FFmpeg CLI availability on Windows. The user's `ffmpeg -version` returned `CommandNotFoundException`; first confirm `winget --version`, then install `Gyan.FFmpeg` if available. Restart PowerShell and verify both `ffmpeg -version` and `ffprobe -version`. Do not claim it installed until output confirms it.
 2. Confirm `$env:HF_HOME` and `$env:TORCH_HOME` in the configured shell; optionally validate a small temporary file read/write on Seagate without downloading models. Record actual exFAT cache behavior before large downloads.
 3. Implement a focused, safe 5–15-second completed-audio input → pitch, timing and pause estimates → structured JSON and diagnostic output experiment; design low-confidence/invalid-input handling and tests.
 4. Validate the analyzer on short, consented known-reference audio and record measured errors.
@@ -227,14 +229,14 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-22. **Starting commit:** `0b68f26` on `main`.
+**Date:** 2026-11-22. **Starting commit:** `c6f9151` on `main`.
 
-**Windows verification reported by user:** Backend tests ran in `C:\Users\nithi\AI-Singer\backend`: `9 passed, 1 warning in 0.70s`. Uvicorn `--reload` launched on `127.0.0.1:8000`, server startup completed, and requests to `/health` and `/ready` both returned **HTTP 200**. No HTTP response bodies were supplied. The reported storage-readiness 200 means the current backend validator accepted the configured storage path at request time.
+**Prior Windows checks (reported by user):** Backend pytest 9 passed (1 nonfatal warning); Uvicorn started; `/health` and `/ready` responded HTTP 200. Seagate volume `Dimpu` was initialized at `D:\AI_Singer` according to PowerShell.
 
-**Warning:** `StarletteDeprecationWarning` from `fastapi.testclient` suggesting `httpx2` in place of `httpx`. Nonfatal; investigate package compatibility before changing dependency pins. An automatic `/favicon.ico` request returned 404; expected for an API without a website icon.
+**New issue reported by user:** Running `ffmpeg -version` in Windows PowerShell produced `CommandNotFoundException` (`ffmpeg` is not recognized). This indicates FFmpeg is unavailable through that shell, but does not establish whether it is missing or simply not on PATH.
 
-**Changes this session:** Documentation-only update to reflect Windows-local backend success. No application code, dependency versions or assets were changed. GitHub commit is the revision containing this file (see Git history).
+**Changes:** Documentation-only update recording the blocker and suggested WinGet installation and validation. No remote installation or code changes; identify this document update by its Git history.
 
-**Not yet verified:** FFmpeg, physical HDD read/write tests, actual model cache creation, GPU inference, singing audio, or musical analysis.
+**Testing:** No new app tests; prior Windows results remain valid. FFmpeg installation and functional validation are still pending.
 
-**Stop point / exact next task:** Confirm FFmpeg and optional cache locations, then implement the first measured musical-understanding/audio-input experiment with tests. The prior backend foundation and storage setup are now user-verified; don't repeat setup unnecessarily.
+**Next:** Check `winget --version`; if available use `winget install --id Gyan.FFmpeg --exact --source winget`. Open a new terminal; verify `ffmpeg -version` and `ffprobe -version`. Re-run `scripts/Initialize-Storage.ps1 -VolumeLabel 'Dimpu'` in that new session before using the backend and model caches.
