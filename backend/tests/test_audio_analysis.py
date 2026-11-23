@@ -1,4 +1,7 @@
 import io
+from pathlib import Path
+import shutil
+import subprocess
 import wave
 
 import numpy as np
@@ -116,3 +119,68 @@ def test_api_rejects_oversized_upload() -> None:
 def test_api_requires_audio_upload() -> None:
     response = client.post("/analyze")
     assert response.status_code == 422
+
+
+@pytest.fixture
+def m4a_audio(tmp_path: Path) -> bytes:
+    """Generate a real AAC-in-MP4 recording, with index metadata at file end."""
+    if not shutil.which("ffmpeg"):
+        pytest.skip("FFmpeg CLI is not available")
+    raw = tmp_path / "source.wav"
+    raw.write_bytes(wav_bytes(sine(220, 2)))
+    output = tmp_path / "recording.m4a"
+    subprocess.run(
+        ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+         "-i", str(raw), "-c:a", "aac", "-b:a", "96k", str(output)],
+        capture_output=True, check=True, timeout=30,
+    )
+    return output.read_bytes()
+
+
+def test_decode_real_m4a_with_seekable_input(m4a_audio: bytes) -> None:
+    decoded = decode_audio(m4a_audio)
+    assert 1.9 <= decoded.size / RATE <= 2.1
+    assert np.max(np.abs(decoded)) > 0.1
+
+
+def test_api_accepts_m4a_upload(m4a_audio: bytes) -> None:
+    response = client.post(
+        "/analyze", files={"file": ("Test 1.m4a", m4a_audio, "audio/x-m4a")}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["note_events"]
+    assert response.json()["duration_seconds"] == pytest.approx(2, abs=0.1)
+
+
+def test_decoder_reads_seekable_file_and_deletes_it(monkeypatch) -> None:
+    import ai_singer.audio_analysis as module
+    seen = []
+    def inspect(command, **kwargs):
+        path = Path(command[command.index("-i") + 1])
+        assert path.is_file()
+        assert path.read_bytes() == b"sample-content"
+        assert "input" not in kwargs
+        seen.append(path)
+        return subprocess.CompletedProcess(command, 0, np.full(RATE * 2, 0.2, dtype="<f4").tobytes(), b"")
+
+    monkeypatch.setattr(module.subprocess, "run", inspect)
+    decoded = decode_audio(b"sample-content")
+    assert len(decoded) == RATE * 2
+    assert len(seen) == 1
+    assert not seen[0].exists()
+
+
+def test_decoder_removes_temporary_file_on_failure(monkeypatch) -> None:
+    import ai_singer.audio_analysis as module
+    seen = []
+    def reject(command, **kwargs):
+        path = Path(command[command.index("-i") + 1])
+        assert path.is_file()
+        seen.append(path)
+        return subprocess.CompletedProcess(command, 1, b"", b"cannot decode")
+
+    monkeypatch.setattr(module.subprocess, "run", reject)
+    with pytest.raises(AudioInputError, match="Cannot decode"):
+        decode_audio(b"not valid")
+    assert len(seen) == 1
+    assert not seen[0].exists()

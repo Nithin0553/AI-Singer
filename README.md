@@ -55,11 +55,11 @@ python -m venv .venv
 
 Open `http://127.0.0.1:8000/health` and `http://127.0.0.1:8000/ready`. The first checks API liveness, and the second requires the configured storage directory. The endpoints do not download or load models.
 
-The original 9 tests passed on the user's Windows laptop. The **expanded 25-test suite** passed in an isolated development environment and still needs testing on their Windows Python 3.12 installation. See `PROJECT_CONTEXT.md`.
+The original 9 tests passed on the user's Windows laptop. The **expanded 29-test suite** passed in the isolated development environment and still needs testing on Windows Python 3.12. See `PROJECT_CONTEXT.md`.
 
 ## Stage 1: analyze a completed vocal phrase
 
-The experimental `POST /analyze` endpoint accepts a **1–15-second** finished audio clip, decodes it through **FFmpeg 9.1** (WAV recommended for first tests), and estimates pitch (Hz + MIDI), stable note candidates and low-volume intervals. Results are returned as JSON. The API is CPU-only, does not download model weights, and does not intentionally save uploads in the project storage directory.
+The experimental `POST /analyze` endpoint accepts a **1–15-second** finished audio clip, decodes it through **FFmpeg** using a short-lived, seekable temporary file (WAV and M4A tested synthetically), and estimates pitch (Hz + MIDI), stable note candidates and low-volume intervals. Results are returned as JSON. The API is CPU-only, does not download model weights, and does not intentionally save uploads in the project storage directory.
 
 On Windows, from the root of your **existing clone** in a PowerShell terminal:
 
@@ -74,5 +74,7 @@ cd backend
 ```
 
 Open `http://127.0.0.1:8000/docs`, expand **POST /analyze**, choose **Try it out**, upload a clear solo vocal recording, then choose **Execute**. Return JSON includes `duration_seconds`, `sample_rate_hz`, `hop_seconds`, `pitch_track`, `note_events`, `quiet_intervals` and `warnings`. Audio is limited to **10 MiB**; 1–15 seconds are accepted. Upload failures return HTTP 422; FFmpeg missing from PATH returns HTTP 503.
+
+The decoder now uses a **temporary seekable file** instead of piping the upload into FFmpeg. This improves compatibility with M4A/MP4 recordings that require seeking; the temporary file is automatically deleted after processing. The uploaded filename is not used as a disk path. This change was tested with FFmpeg-generated AAC/M4A files, but the specific user recording still requires a Windows retest. `GET /analyze` returns HTTP 405 by design; submit files using **POST /analyze** in Swagger.
 
 **Experimental limitation:** These are heuristic measurements, **not** verified notes, accurate lyrics, beat transcription, or an AI singer rendering. Onsets, rests, glissando, ornaments, noise and vocal breaths may be wrong. Real microphone recordings must be evaluated next. There is no plotted musical score or generated singing yet.

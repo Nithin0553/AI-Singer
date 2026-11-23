@@ -2,7 +2,7 @@
 
 > **Persistent handoff:** Read this file at the beginning of each development session. Then inspect current source files and recent Git commits; this document is not a substitute for verification.
 >
-> **Last reviewed:** 2026-11-22 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Stage 1 CPU-only musical analysis endpoint implemented and tested with synthetic audio; no user-voice or singing model evaluation yet.
+> **Last reviewed:** 2026-11-22 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Stage 1 analyzer implemented; M4A decoding improved and tested with generated files; the actual user M4A recording remains unverified.
 >
 > **Verification boundary:** Repository contents/history were checked through GitHub. Hardware and tool versions below are from **user-provided Windows PowerShell output**; no direct access to or verification on the laptop or external disk.
 
@@ -49,29 +49,27 @@ The Windows GPU is RTX 3050 Ti with 4 GiB VRAM. This prototype is CPU-only and d
 
 ## 4. System Architecture
 
-**Implemented today:**
+**Implemented:**
 
 ```text
-Finished short vocal file (WAV/MP3/WebM etc. supported by FFmpeg)
-            |
-    POST /analyze (FastAPI)
-            |
-   Size + duration validation
-            |
- FFmpeg -> 16 kHz mono float PCM (in memory)
-            |
- librosa YIN fundamental pitch estimate
- RMS silence check + periodicity gate
-            |
- Frame-by-frame pitch & MIDI values
- Candidate steady notes + quiet intervals
-            |
-        JSON response
+Finished 1–15 s recording (WAV, M4A, MP3, WebM, as decodable)
+    |
+POST /analyze; bound uploaded bytes to <=10 MiB
+    |
+Short-lived local temporary file with seekable FFmpeg input
+    |
+FFmpeg -> 16 kHz mono float PCM in memory
+    |
+librosa YIN pitch + RMS + periodicity checks
+    |
+Time-stamped pitch, candidate notes, quiet intervals and warnings
+    |
+JSON response; temporary input file deleted
 ```
 
-Audio duration must be 1–15 seconds, upload payload <=10 MiB. Decode is capped at 16 seconds and has a 30-second subprocess timeout. No AI weights or GPU required. The source audio is not intentionally saved to project storage by the endpoint (request handling may use framework temporary files).
+FFmpeg is invoked without a shell; original user-supplied filenames are never used as a local path. Temporary files use the OS temporary directory (normally an internal disk), not the Seagate model/dataset storage. Files are automatically deleted after decode success or failure; this is ordinary filesystem deletion, not secure erasure. Duration is bounded at 1–15 seconds, decode at 16 seconds, max payload 10 MiB, and subprocess timeout 30 seconds.
 
-**Future, unimplemented:** Browser capture, agent reasoning, sung-lyrics recognition, music-aware correction, singing voice conversion/synthesis, fidelity comparisons, take history and studio UI. The LLM must not replace audio measurements; approved takes must remain reversible.
+**Not implemented:** Record/Done button, streaming, musical score editor, lyric recognition, agent intelligence, singing conversion/synthesis, audio exports or persistent take history.
 
 ## 5. Repository Structure
 
@@ -90,54 +88,49 @@ No `frontend/`, music model weights or data assets are committed.
 
 ## 6. Development Progress
 
-**Implemented and verified in development container:**
-- Existing `main` foundation retained; 9 original tests preserved.
-- CPU-only `POST /analyze` implemented. Uses FFmpeg to decode a completed 1–15-second clip to 16 kHz mono, rejects invalid input, calculates frame-level pitch, candidate notes, quiet intervals, and warnings.
-- Automated tests: **25 passed** in isolated Linux Python 3.13 development environment, including API-level WAV upload tests, generated note frequencies, silence, noise, decoder failure, and upload size/duration errors.
-- Editable installation (`--no-build-isolation --no-deps` with dependencies already present) and `compileall` succeeded.
+**Completed and tested in isolated Linux development environment:**
+- Existing backend and musical pitch analysis API retained.
+- Replaced non-seekable FFmpeg stdin upload decoding with a seekable, disposable temporary input file. This addresses a common MP4/M4A decoding constraint without assuming the exact cause of the user's error.
+- Regression tests now include a real FFmpeg-generated AAC/M4A upload with filename `Test 1.m4a`, decoding via the library function, API-level upload, file cleanup on success and failure, WAV and existing analysis checks.
+- **29 tests passed** (9 original API/storage + 20 audio tests) using Python 3.13.5, FFmpeg 7.1.x, with compileall passing. No GPU or model weights required.
 
-**Confirmed by user on Windows:** Seagate `Dimpu` volume initialized as `D:\AI_Singer`; Python 3.12.10; previous 9 backend tests passed and `/health`/`/ready` returned HTTP 200. Fresh Windows PowerShell successfully ran **FFmpeg 9.1 and ffprobe 9.1** and reran storage initializer.
+**Verified by user on Windows:** FFmpeg and FFprobe **9.1** both ran; Seagate `Dimpu` set to `D:\AI_Singer`. Earlier backend tests were 9 passed and `/health` / `/ready` HTTP 200.
 
-**Awaiting Windows verification:** Installing new dependencies from `pyproject.toml`, running the new 25-test suite and loading short real microphone recordings through `/docs`.
+**New user report:** Swagger `POST /analyze` with `Test 1.m4a` returned HTTP **422**, `Cannot decode the recording. Try WAV, MP3, or WebM audio.` A separate `GET /analyze` returned **405**, which is expected because the route only accepts POST.
 
-**Not implemented:** Voice synthesis, model evaluation/training, natural-language feedback, lyrics/phoneme alignment, interactive studio UI, or conversational agent.
+**Pending on Windows:** Update checkout, rerun 29 tests, retry the same recording. The original M4A file was **not supplied** for inspection, so the exact cause and successful resolution for that recording are unverified.
 
 ## 7. Technical Decisions
 
-- Continue in the existing repository with a simple `main` workflow; no unnecessary branches, destructive updates or force-pushes.
-- Update this file alongside meaningful implementation, test, design and session changes.
-- Keep models, datasets, checkpoints, caches and rendered audio outside Git.
-- **Storage selection is user-confirmed:** Seagate exFAT volume labeled `Dimpu` currently at `D:`; planned project root `D:\AI_Singer`.
-- Do **not hardcode drive letters** in application logic. The setup script resolves by volume label each time, so it can find the disk after drive-letter reassignment.
-- The script must be run locally in each PowerShell session that will run models/API; its `AI_SINGER_STORAGE_ROOT`, `HF_HOME` and `TORCH_HOME` variables apply only to that shell, avoiding global effects on other projects.
-- Use a non-destructive, idempotent initialization script: preview first, create only project folders on explicit execution; never format or clear the disk.
-- Prefer a turn-based listen → analyze → sing → correct workflow and independent pitch/time evaluation before costly training.
-- Keep application source/virtual environments on faster internal storage when practical, larger assets on the Seagate HDD.
+- Preserve existing GitHub repository and minimal `main` workflow; maintain this handoff with real implementation and test state.
+- Keep large models/datasets off Git, with Seagate `Dimpu` as configurable external storage; never hardcode a drive letter in application code.
+- Use a small, **seekable temporary file** for inbound audio formats such as M4A/MP4. Do not depend on the request's filename, shell command interpolation or saving recordings into long-term dataset storage. Delete input temp files after decoding.
+- Keep the same 10 MiB upload and 1–15 s duration limits while investigating format compatibility. Keep the output PCM in memory.
+- Do not assume that changing FFmpeg input mechanics resolves every M4A issue; validate with actual user recordings and inspect with `ffprobe` if failures persist.
+- The first analyzer is a CPU-only heuristic; measured pitch, candidate notes and quiet intervals are not validated musical meaning or a generated singing performance.
 
 ## 8. Known Issues
 
-- Audio analysis is a **baseline experiment**, not a verified musical transcription. YIN and stability thresholds can miss vibrato, short notes, ornaments, slides, soft singing, overlapping sounds and noisy recordings.
-- Quiet intervals represent low measured RMS, not necessarily semantic or musical rests. Timing is frame-based and approximate (20 ms steps, ~128 ms window).
-- No beat-level tempo inference, Telugu lyrics, voice identity, singing synthesis, emotions or creative musical suggestions are implemented.
-- `POST /analyze` handles one completed 1–15 s upload (<=10 MiB); it decodes via an FFmpeg subprocess and does **not** save takes or generate a rendered pitch plot. The JSON pitch track can later power plotting in the studio UI.
-- Real singer recordings, microphone formats (WebM/MP3), peak memory use, first-run latency, and Windows dependency installation still need validation. Tests currently exercise WAV and generated signals only.
-- Windows `D:` Seagate exFAT remains slower than internal SSD and may not support symlink-intensive model caches.
-- Windows earlier emitted one nonfatal `StarletteDeprecationWarning` from `fastapi.testclient` regarding httpx/httpx2; don't upgrade libraries blindly.
-- RTX 3050 Ti has 4 GiB VRAM; larger singing and training models may need cloud resources or carefully reduced configurations.
+- **Real user file still unverified:** Screenshot shows an M4A upload rejected by the old non-seekable decoder with HTTP 422. The new seekable-file implementation passed generated M4A tests, but the exact `Test 1.m4a` was not provided. If it still fails, inspect its FFprobe metadata and playback. Corrupt/incomplete/protected files and unusual codecs may remain unsupported.
+- `GET /analyze` returns HTTP 405 by design; use `POST /analyze` multipart upload in `/docs`.
+- Heuristic YIN pitch extraction can miss vibrato, ornaments, slides, short notes, soft singing and noisy vocals; no end-to-end voice fidelity demonstrated.
+- Silence intervals are RMS-based rather than semantically classified rests. No tempo inference, lyric alignment, visual score, voice generation, editing UI or speaking agent yet.
+- Temp files use OS default temporary space (typically C:), bounded to 10 MiB each; simultaneous uploads may consume temporary disk. Files are deleted normally after processing but not securely overwritten.
+- Model/HDD cache behavior and real Windows audio-processing latency remain unmeasured. ExFAT may not support some cache symlink strategies.
+- Windows Starlette/httpx TestClient deprecation warning remains nonfatal; do not upgrade unrelated libraries without assessment.
 
 ## 9. Testing and Verification
 
-**Development workspace tests (Linux Python 3.13.5, not user's Windows):**
+**Isolated Linux Python 3.13.5 development environment, not Windows:**
+- `python -m pytest -q`: **29 passed**, including existing 9 backend checks, original WAV/analysis tests and four M4A/temp-file regressions.
 - `python -m compileall -q ai_singer tests`: passed.
-- `PYTHONPATH=. python -m pytest -q`: **25 passed**.
-- `python -m pip install -e . --no-deps --no-build-isolation`: succeeded using preinstalled dependencies; `python -m pytest -q` still **25 passed**.
-- Two-tone sample (220 and 330 Hz), steady 220 Hz note, quiet interval, white noise and silent recordings exercised. API upload returns structured JSON; bad and oversized uploads rejected.
-- Manual analysis benchmark in the container: a 15-second 220 Hz reference produced 751 pitch frames and a steady A3 candidate; does not establish real-world latency guarantees or musical accuracy.
-- Source files and documentation reviewed; the generated Git tree should be read back after the commit.
+- Real AAC-in-MP4 generated by FFmpeg 7.1.x and decoded successfully from a seekable input file. API accepted `Test 1.m4a` with `audio/x-m4a` as HTTP 200, returning pitch and note candidates.
+- Tests verify that the temporary source is accessible during FFmpeg execution and is deleted on success or failure.
+- Existing 10 MiB limit, 1–15 s duration, invalid audio, absent FFmpeg and storage-readiness behaviors remain tested.
 
-**User-reported Windows verification before this change:** Existing 9 tests passed (1 warning), Uvicorn started, and `/health` and `/ready` returned HTTP 200. Newly opened PowerShell successfully executed `ffmpeg -version` and `ffprobe -version`, both **9.1**, and the Seagate setup script reported success.
+**Previously user-reported Windows checks:** FFmpeg/FFprobe 9.1 available, Seagate `Dimpu` configured, existing 9 backend tests passed, API `/health` and `/ready` returned HTTP 200. The user also reported one failed M4A `POST /analyze` (422) and expected `GET /analyze` (405) with the prior decoder.
 
-**Not yet tested:** New analyzer on Windows/Python 3.12, user singing, consumer microphone/WebM/MP3 clips, GPU or model inference, voice quality or training.
+**Not yet tested:** New fix with FFmpeg 9.1 on Windows/Python 3.12; exact user's M4A recording, singer pitch accuracy, performance, GPU, or AI models.
 
 ## 10. Development Environment
 
@@ -194,24 +187,25 @@ The API refuses storage readiness if the configured root is missing or not writa
 
 ## 12. Next Steps
 
-1. **Next: Windows acceptance check.** Fast-forward local checkout, initialize `Dimpu` in that shell, install updated backend dependencies and run pytest. Confirm 25 tests pass on Python 3.12.10; report warnings or dependency issues.
-2. Upload an original/consented 1–15-second **clear solo vocal WAV** via `/docs` → `POST /analyze`. Inspect the pitch contour, candidate note events, pauses and limitations. Do not mark musical fidelity verified until compared with the recording.
-3. Add diagnostic plotting in studio UI or generated report, and quantify measured note/pitch/timing error on reference clips.
-4. Improve voicing and pitch methods with RMVPE/torchcrepe comparison only if the baseline has documented shortcomings.
-5. Evaluate licensed male/female singing voice-conversion models with 4 GiB VRAM constraints; record quality, resource use and latency.
-6. Implement the LLM-orchestrated director/creative musical agent, targeted corrections and versioned approved takes.
-7. Prepare rights-cleared Telugu vocal datasets and consider controlled synthesis/fine-tuning when necessary.
+1. **Windows acceptance:** Stop running Uvicorn (`Ctrl+C`), `git pull --ff-only`, rerun pytest and verify **29 passed**. Relaunch with `uvicorn ... --reload`.
+2. In `http://127.0.0.1:8000/docs` retry **POST /analyze** with the original `Test 1.m4a` (1–15 seconds, <=10 MiB). Record the actual HTTP response. Do not use browser navigation to `GET /analyze`.
+3. If the same M4A fails, confirm it plays locally and run `ffprobe -v error -show_format -show_streams 'path-to-Test 1.m4a'` (share relevant codec/duration/errors, not private metadata), or convert a copy to WAV. The original file has not been uploaded to ChatGPT, so do not speculate about its codec or integrity.
+4. Once the upload succeeds, inspect pitches/notes/pauses and evaluate against a consented known reference. Add visual diagnostic plotting and quantify errors.
+5. Compare advanced pitch models only if baseline fails demonstrated accuracy needs, then evaluate authorized voice conversion on suitable compute.
+6. Continue with director/creative agent, versioned take memory and licensed Telugu singing data after audio validation.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-22. **Base commit:** `38231c0` on `main`.
+**Date:** 2026-11-22 to 2026-11-23. **Starting GitHub commit:** `37e3406` on `main`.
 
-**User-confirmed local environment:** Windows FFmpeg and FFprobe both **9.1** ran successfully after a PowerShell restart; Seagate setup script again selected `Dimpu` at `D:\AI_Singer`. The previous Windows backend had **9 passing tests**, and `/health` plus `/ready` returned HTTP 200.
+**User report:** Uploaded `Test 1.m4a` using Swagger `POST /analyze` (MIME `audio/x-m4a`) and received HTTP 422 with generic FFmpeg decode error. A separate browser request `GET /analyze` returned HTTP 405; only POST is implemented.
 
-**Implementation in this development session:** Added `POST /analyze` for short uploaded audio, bounded FFmpeg decode, pitch estimation using librosa YIN with periodicity + RMS rejection, candidate MIDI note events and quiet intervals, clear limitations, and new dependencies/tests. No model weights or recorded user audio stored.
+**Investigation:** Existing decoder passed uploaded bytes to FFmpeg through `pipe:0` (non-seekable). MP4/M4A may require seeking; this is a plausible compatibility issue, not confirmed as the exact reason for this file's failure because the actual audio was not provided.
 
-**Verification:** Isolated Linux Python 3.13.5 container: **25 tests passed**, compileall passed, editable install using preinstalled packages passed. Generated sine-wave note/silence tests pass. **Windows installation and genuine singing performance remain untested.**
+**Implementation:** Changed FFmpeg decoding to use a bounded, seekable file in `tempfile.TemporaryDirectory`, with automatic deletion. Improved decode error to mention M4A. Added regression tests for FFmpeg-generated AAC/M4A, HTTP M4A upload, temp-file lifetime on successful decode and failure. No change to `POST /analyze` API shape or large storage configuration.
 
-**Changed files:** `backend/pyproject.toml`, `backend/ai_singer/main.py`, new `backend/ai_singer/audio_analysis.py`, new `backend/tests/test_audio_analysis.py`, `README.md`, this context file. No unrelated files changed. Check Git history for commit hash.
+**Verified:** **29 tests passed** and Python compilation succeeded in an isolated Linux/Python 3.13.5 environment using FFmpeg 7.1.x. The generated AAC/M4A request passed, but the user's actual recording and Windows FFmpeg 9.1 are still untested with the fix.
 
-**Stop point:** Ready for user to `git pull --ff-only`, install updated dependencies, run pytest, and submit a short recorded vocal clip in Swagger `/docs`. Only after verifying actual singing may the pitch model be called effective in practice.
+**Changed:** `backend/ai_singer/audio_analysis.py`, `backend/tests/test_audio_analysis.py`, `README.md`, and `PROJECT_CONTEXT.md`. See Git history for this session's new commit.
+
+**Next task:** User fetches updated `main`, runs 29 tests, restarts Uvicorn, retries the same `Test 1.m4a`, and reports the result.

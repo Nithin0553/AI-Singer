@@ -2,7 +2,9 @@
 
 from dataclasses import dataclass
 import math
+from pathlib import Path
 import subprocess
+import tempfile
 
 import librosa
 import numpy as np
@@ -34,26 +36,34 @@ class VoiceFrame:
 
 
 def decode_audio(data: bytes) -> np.ndarray:
-    """Decode the first audio stream to normalized, mono 16 kHz samples."""
+    """Decode the first audio stream from a seekable, short-lived temporary file."""
     if not data:
         raise AudioInputError("The audio recording is empty.")
     if len(data) > MAX_UPLOAD_BYTES:
         raise AudioInputError("Recording exceeds the 10 MB upload limit.")
 
-    command = [
-        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-        "-threads", "1", "-i", "pipe:0", "-map", "0:a:0",
-        "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE),
-        "-t", str(MAX_DECODE_SECONDS), "-f", "f32le", "pipe:1",
-    ]
-    try:
-        decoded = subprocess.run(command, input=data, capture_output=True, timeout=30, check=False)
-    except FileNotFoundError as exc:
-        raise AudioDecoderUnavailable("FFmpeg is not available in the server PATH.") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise AudioInputError("Audio decoding timed out.") from exc
+    # Some MP4/M4A files require seeking to locate metadata or audio samples.
+    # Don't pass the uploaded filename to FFmpeg, and always remove the file.
+    with tempfile.TemporaryDirectory(prefix="ai_singer_audio_") as temporary_dir:
+        source_path = Path(temporary_dir) / "recording"
+        source_path.write_bytes(data)
+        command = [
+            "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+            "-threads", "1", "-i", str(source_path), "-map", "0:a:0",
+            "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE),
+            "-t", str(MAX_DECODE_SECONDS), "-f", "f32le", "pipe:1",
+        ]
+        try:
+            decoded = subprocess.run(command, capture_output=True, timeout=30, check=False)
+        except FileNotFoundError as exc:
+            raise AudioDecoderUnavailable("FFmpeg is not available in the server PATH.") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise AudioInputError("Audio decoding timed out.") from exc
+
     if decoded.returncode or not decoded.stdout:
-        raise AudioInputError("Cannot decode the recording. Try WAV, MP3, or WebM audio.")
+        raise AudioInputError(
+            "Cannot decode the recording. Verify that the audio file plays and try WAV, M4A, MP3, or WebM."
+        )
     if len(decoded.stdout) % 4:
         raise AudioInputError("The decoded audio is incomplete.")
 
@@ -64,7 +74,6 @@ def decode_audio(data: bytes) -> np.ndarray:
     if not np.isfinite(samples).all():
         raise AudioInputError("The recording contains invalid audio samples.")
     return np.clip(samples, -1.0, 1.0)
-
 
 def _periodicity(frame: np.ndarray, frequency: float) -> float:
     """Check whether a proposed fundamental actually repeats in the waveform."""
