@@ -2,7 +2,7 @@
 
 > **Persistent handoff:** Read this file at the beginning of each development session. Then inspect current source files and recent Git commits; this document is not a substitute for verification.
 >
-> **Last reviewed:** 2026-11-23 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Windows Pitch Lab and two-estimator comparison verified; 68 tests passed on user's Windows laptop. Ground-truth pitch/note accuracy remains unverified; chart click-to-seek has been user-verified.
+> **Last reviewed:** 2026-11-23 | **Repo:** [Nithin0553/AI-Singer](https://github.com/Nithin0553/AI-Singer) | **Status:** Windows Pitch Lab and two-estimator comparison verified; 68 tests passed on user's Windows laptop. Known-pitch synthetic calibration is implemented and locally verified, but human singing ground-truth accuracy remains unverified; chart click-to-seek was user-verified.
 >
 > **Verification boundary:** Repository contents/history were checked through GitHub. Hardware and tool versions below are from **user-provided Windows PowerShell output**; no direct access to or verification on the laptop or external disk.
 
@@ -64,7 +64,9 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 - `backend/ai_singer/audio_analysis.py`: YIN/RMVPE frame estimates, now delegates event grouping to `musical_events.py`.
 - `backend/ai_singer/musical_events.py`: stable pitch cores, candidate glides and short octave anomaly detection; preserves raw measurements.
 - `backend/ai_singer/pitch_benchmark.py`: joint estimators, continuous disagreement spans and stable-core summary.
-- `backend/ai_singer/pitch_validation.py`: checks user-provided ground-truth note/rest interval labels and pitch/voicing error.
+- `backend/ai_singer/pitch_validation.py`: scores independently known note/rest labels.
+- `backend/ai_singer/calibration.py`: generates an exact-pitch synthetic WAV and reference under configured HDD storage and optionally scores YIN/RMVPE.
+- `backend/tests/test_calibration.py`: 11 new tests for tones, rests, glide, reference, storage and reports.
 - `backend/ai_singer/main.py`: existing routes plus `POST /compare` and local `GET /pitch-lab`.
 - `backend/ai_singer/static/pitch_lab.html`: dependency-free local inspection page with graph and audio playback.
 - `backend/examples/pitch-reference.example.json`: reference interval format example (not a true annotated sample).
@@ -85,6 +87,8 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 
 **New exact JSON from Windows Pitch Lab:** 9.195-second clip; 460 frames; YIN/RMVPE voiced frames 390/393, jointly voiced 388, median difference 11 cents; 1 cross-estimator review span from 8.90–8.96 s (median 1,189 cents); 13 YIN and 10 RMVPE stable cores, 1 YIN octave-jump candidate and 0 RMVPE octave-jump candidates. RMVPE pitch transition candidates: 12. This run timed YIN at **2.830 s** and RMVPE at **5.121 s**; earlier benchmark timings differed substantially, so do not assume a general speed winner.
 
+**Controlled development benchmark:** Synthetic 7.55 s fixture generated with held A3/C4/D4, pauses and a C4-to-D4 glide. In an isolated Linux environment, YIN scored **192/192 labeled pitch frames**, 34/34 labeled quiet frames, 1.0-cent median absolute error and zero octave errors. These are **synthetic tones**, not human singing. The moving slide and note transitions are deliberately excluded from constant-note scoring. Real RMVPE inference on this generated fixture is pending Windows testing.
+
 **Still unimplemented:** General expressive note understanding, automatic source note onset recognition, original-voice playback synthesis, lyric/phoneme understanding, agent reasoning, voice conversion or full studio.
 
 ## 7. Technical Decisions
@@ -102,7 +106,7 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 - Stable-core classification uses local pitch stability windows and minimum event lengths. It is a heuristic, with provisional thresholds and **unverified note boundaries**. Slow slides, vibrato, fast ornaments, breaths and expressive transitions can still be mislabeled.
 - A short octave-like YIN drop near 8.90–8.94 s is a **review candidate**, not automatically fixed. No original raw user recording was supplied to compare by listening. RMVPE remains an experiment, not a proven production choice.
 - `POST /compare` invokes both estimators; CPU runtime may be >10 seconds on this laptop. No request queue, concurrent-user throttling, or broader production security hardening has been implemented. The browser page should be run locally only.
-- `pitch_validation.py` requires trusted, separately annotated notes/rests. Example JSON is a *format illustration*, not evidence. Unannotated time is excluded.
+- The new generator makes known-reference synthetic audio with a matching score file; its success does **not** establish human singer accuracy. Moving slide and onset boundaries are intentionally excluded. The previous example file remains only a format illustration.
 - An existing client relying on the previous quantized `note_events` count must be updated; new classification deliberately returns fewer stable cores.
 - Browser Pitch Lab rendered and `/compare` succeeded in the latest Windows run; 68/68 tests passed. The user subsequently confirmed clicking the red 8.9-second graph region seeks the audio player to that point, verifying seek behavior but not perceptual accuracy. The user has not provided the original audio bytes here, so no perceptual assessment or independent note-onset verification is possible.
 - Seagate exFAT symlink/cache behavior remains a possible limitation. Model licensing still needs user review before production.
@@ -118,7 +122,7 @@ Known limitations: the stable-core regions are **not true note onset boundaries*
 
 **Windows acceptance supplied by user (2026-11-23):** `pytest -q` in the existing backend virtual environment reported **68 passed in 7.62 s**. Uvicorn started successfully; `GET /pitch-lab` returned HTTP 200, and `POST /compare` returned HTTP 200. A `GET /favicon.ico` request returned expected HTTP 404 because there is no favicon. The attached screenshot shows both estimator traces, green stable pitch cores, red review span, audio player and summary statistics. The supplied JSON confirms comparison values and note/event summary. The screenshot does not independently verify click-to-seek playback synchronization.
 
-**User-verified UI behavior:** Clicking the red region around 8.9 seconds moves the browser audio player to that point. **Still not verified:** independently listening to the recording, ground-truth note/onset accuracy, correct interpretation of slides and ornaments, repeated-run latency, singing synthesis and live dialogue.
+**User-verified UI behavior:** Clicking the red region around 8.9 seconds moves the browser audio player to that point. **New calibration evidence:** Isolated Linux Python 3.13 development mirror: **78 tests passed** (67 prior + 11 new), compileall passed. YIN synthetic known-answer scoring: 192 voiced reference frames, 34 quiet reference frames, 1-cent median error, 0 octave errors. **Still not verified:** new Windows tests, RMVPE on synthetic fixture, real singer accuracy, note-onset accuracy, singing generation and live dialogue.
 
 ## 10. Development Environment
 
@@ -144,20 +148,22 @@ Continue to use `AI_SINGER_STORAGE_ROOT` pointing to Seagate `Dimpu` (currently 
 
 ## 12. Next Steps
 
-1. **Windows browser interaction verified:** User confirms clicking the red 8.9-second review region seeks the audio player to that time. Listen at that point to judge YIN's octave-drop estimate; no automatic correction.
-2. **Ground-truth musical accuracy:** Record a few short, independently annotated notes, rests and slides with actual pitches and note times; run the existing `pitch_validation` tool on YIN/RMVPE comparisons. Model agreement does not establish correctness.
-3. **Ground-truth musical accuracy:** Record or provide a few permissioned clear notes, rests and slides with independent note/time labels. Run `pitch_validation` and compare true error (cents, voicing, octave problems) between YIN and RMVPE.
-4. Refine transition and note-boundary logic using measured annotations and real expressive Telugu singing; do not prematurely adopt detected stable cores as score notes.
-5. Only after acceptable musical measurements proceed to authorized singing voice-conversion experiments, language understanding, and Director/Collaborative agent integration.
+1. **Windows acceptance:** Pull main, initialize `Dimpu` in the same shell and run pytest. The earlier user Windows suite had 68 passing tests; this commit adds 11 synthetic calibration tests. Record the actual result.
+2. Run `python -m ai_singer.calibration --compare` to generate known-note WAV/reference and score both estimators on the Seagate HDD. Submit `median_absolute_pitch_error_cents`, `within_50_cents_fraction`, missed voiced frames and voiced-on-rest counts for YIN and RMVPE. Real RMVPE accuracy for this generated calibration is **not yet measured**.
+3. Open `/pitch-lab` and load the generated WAV to inspect each plateau, rest and slide. The slide is not scored as a fixed note.
+4. Record separate permissioned human singing phrases; independently label the actual performed pitches and timings, not the synthetic fixture's exact timings. Then compare each model's errors against that reference.
+5. Use these results to decide on threshold/onset improvements before starting authorized singing voice-conversion or conversational agent work.
 
 ## 13. Latest Development Session
 
-**Date:** 2026-11-23. **Starting commit:** `97d2e9d` on `main`.
+**Date:** 2026-11-23. **Base GitHub head:** `d307c34` on `main`.
 
-**New Windows behavior verified by user:** Clicking the red review region near 8.9 seconds in Pitch Lab makes the audio player jump to that moment. Chart-to-player seeking therefore works on the user's machine. This does not verify that the suspected YIN octave error is wrong, or verify note transcription accuracy.
+**User request:** Start controlled, known-note melody validation of YIN and RMVPE.
 
-**Previously verified:** 68 Windows tests passed, `GET /pitch-lab` and `POST /compare` HTTP 200, plotted YIN/RMVPE curves and stable cores, and real RMVPE inference on 9.195-second recording. The model disagreement around 8.90–8.96 seconds remains flagged for review.
+**Implementation:** Added `backend/ai_singer/calibration.py` to generate a deterministic 7.55 s 16 kHz mono WAV with A3 220 Hz, C4 261.63 Hz, upward C4-to-D4 glide, D4 293.66 Hz and quiet intervals. The paired JSON contains exact independently specified stable-note and rest windows; the continuous slide and boundaries are not misrepresented as constant notes. Optional `--compare` benchmarks and scores both estimators, writing all outputs to the configured Seagate `outputs/previews/calibration` folder. No weights downloaded or user audio modified.
 
-**Changes:** Documentation-only update of user-verified click-to-seek behavior and remaining milestones; no source/model/storage changes.
+**Verification:** Mirrored Linux Python 3.13 repository test run: **78 passed** (67 preexisting + 11 calibration tests), compileall passed. Generated WAV decoded and YIN independently scored against known reference: **192/192 labeled voiced frames**, **34/34 labeled rest frames quiet**, **1.0-cent median absolute error**, **zero octave errors**. The synthetic test does not validate real human singing or musical onset accuracy. RMVPE on this fixture and new Windows suite still need acceptance.
 
-**Next task:** Listen to the original audio at the review region, then evaluate the analyzer against independently annotated reference notes/rests using `pitch_validation` before modifying segmentation logic or moving to singing generation.
+**Changed files:** New `backend/ai_singer/calibration.py`, `backend/tests/test_calibration.py`, README and this handoff. Generated WAV/reference and scores were created in a disposable development workspace only, not Git or the user's Windows disk.
+
+**Stop point:** User should pull latest main, initialize Seagate, run pytest, execute `python -m ai_singer.calibration --compare` and share real Windows results.

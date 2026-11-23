@@ -146,3 +146,27 @@ The existing `POST /analyze` continues to return `pitch_track` but its `note_eve
 Here `$report` is the saved JSON from `python -m ai_singer.pitch_benchmark` on the *same* recording. The evaluator reports median absolute pitch error (cents), missed voiced frames, voiced frames inside annotated silence, and octave-like errors. It **excludes unlabeled intervals**. Do not use the example annotations with unrelated singing or treat agreement between two estimators as ground truth.
 
 **Validation status:** A development-container mirror passed 67 tests covering musical glides, steady pitches, short vs sustained octave changes, API uploads, reference metrics and the visual page. The final GitHub file tree and user Windows run still need independent acceptance; no actual user recording or known-note annotations were supplied for musical ground truth.
+
+## Synthetic ground-truth calibration
+
+Generate a **7.55-second, known-pitch WAV** with A3 (220 Hz), C4 (261.63 Hz), a continuous upward C4-to-D4 slide, D4 (293.66 Hz), A3 again, and pauses. The supplied reference labels only held-note interiors and confirmed silence; slide and onset transitions are excluded from constant-note scoring.
+
+```powershell
+cd C:\Users\nithi\AI-Singer
+git pull --ff-only
+.\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu'
+cd backend
+.\.venv\Scripts\python -m pytest -q
+.\.venv\Scripts\python -m ai_singer.calibration --compare
+```
+
+The command writes **only to the configured external storage** at `outputs/previews/calibration/`:
+
+- `known-pitch-calibration.wav`: audio for `/pitch-lab`.
+- `known-pitch-reference.json`: independent reference pitches and rests.
+- `known-pitch-comparison.json`: full YIN/RMVPE analysis.
+- `known-pitch-scores.json`: pitch error, voiced coverage, silence mistakes and octave errors against known references.
+
+Without `--compare`, it generates the audio/reference without loading RMVPE. It does not download weights. Existing audio/reference files are reused; use `--overwrite` only when explicitly regenerating. The script refuses to fall back to an unconfigured internal drive.
+
+**Important:** A strong synthetic benchmark score is not evidence of accuracy on **human singing**. For that next test, independently annotate pitches and note timings actually sung rather than scoring a human recording against these synthetic timestamps.
