@@ -1,5 +1,7 @@
 """AI Singer API: health, external storage readiness, and vocal phrase analysis."""
 
+from typing import Literal
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from ai_singer.audio_analysis import (
@@ -9,6 +11,7 @@ from ai_singer.audio_analysis import (
     analyze_audio,
     decode_audio,
 )
+from ai_singer.rmvpe_pitch import RMVPEUnavailable
 from ai_singer.storage import StorageConfigurationError, configured_storage_root
 
 app = FastAPI(title="AI Singer API", version="0.1.0")
@@ -31,15 +34,15 @@ def ready() -> dict[str, str]:
 
 
 @app.post("/analyze")
-def analyze(file: UploadFile = File(...)) -> dict:
+def analyze(file: UploadFile = File(...), estimator: Literal["yin", "rmvpe"] = "yin") -> dict:
     """Analyze a finished 1–15-second phrase without storing the uploaded audio."""
     try:
         recording = file.file.read(MAX_UPLOAD_BYTES + 1)
         samples = decode_audio(recording)
-        return analyze_audio(samples)
+        return analyze_audio(samples, estimator=estimator)
     except AudioInputError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    except AudioDecoderUnavailable as error:
+    except (AudioDecoderUnavailable, RMVPEUnavailable) as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
     finally:
         file.file.close()

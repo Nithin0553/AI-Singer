@@ -105,20 +105,27 @@ def _segments(
     return intervals
 
 
-def analyze_audio(samples: np.ndarray) -> dict:
+def analyze_audio(samples: np.ndarray, estimator: str = "yin") -> dict:
     """Estimate vocal pitch, steady notes, and quiet intervals; no lyric transcription."""
     y = np.asarray(samples, dtype=np.float32)
     if y.ndim != 1 or y.size == 0:
         raise AudioInputError("Expected one non-empty mono audio channel.")
 
     duration_seconds = y.size / SAMPLE_RATE
-    f0 = librosa.yin(
-        y, sr=SAMPLE_RATE, fmin=80, fmax=900,
-        frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH, center=True,
-    )
     rms = librosa.feature.rms(
         y=y, frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH, center=True,
     )[0]
+    if estimator == "yin":
+        f0 = librosa.yin(
+            y, sr=SAMPLE_RATE, fmin=80, fmax=900,
+            frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH, center=True,
+        )
+    elif estimator == "rmvpe":
+        from ai_singer.rmvpe_pitch import estimate_rmvpe
+        f0 = estimate_rmvpe(y, len(rms), SAMPLE_RATE, HOP_LENGTH)
+    else:
+        raise ValueError(f"Unknown pitch estimator: {estimator}")
+
     if len(f0) != len(rms):
         raise RuntimeError("Audio feature lengths do not match.")
 
@@ -130,8 +137,11 @@ def analyze_audio(samples: np.ndarray) -> dict:
     voiced = np.zeros(len(f0), dtype=bool)
     for index, frequency in enumerate(f0):
         if not quiet[index] and math.isfinite(float(frequency)):
-            frame = padded[index * HOP_LENGTH:index * HOP_LENGTH + FRAME_LENGTH]
-            voiced[index] = _periodicity(frame, float(frequency)) >= 0.72
+            if estimator == "rmvpe":
+                voiced[index] = True  # Neural confidence filtering is applied by the adapter.
+            else:
+                frame = padded[index * HOP_LENGTH:index * HOP_LENGTH + FRAME_LENGTH]
+                voiced[index] = _periodicity(frame, float(frequency)) >= 0.72
 
     midi = np.full(len(f0), np.nan)
     midi[voiced] = librosa.hz_to_midi(f0[voiced])
@@ -167,6 +177,7 @@ def analyze_audio(samples: np.ndarray) -> dict:
     if not np.any(voiced):
         warnings.append("No reliable voiced pitch detected. Try a clear solo vocal recording.")
     return {
+        "estimator": estimator,
         "duration_seconds": round(y.size / SAMPLE_RATE, 3),
         "sample_rate_hz": SAMPLE_RATE,
         "hop_seconds": frame_step,

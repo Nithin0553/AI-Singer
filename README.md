@@ -2,7 +2,7 @@
 
 AI Singer is a planned interactive AI singing studio in which a music director sings a melody, waits for the AI to listen and analyze it, then hears it reproduced by a selectable male or female AI singing voice. The director can correct sections or request optional creative alternatives.
 
-**Current status:** Minimal FastAPI backend with a **CPU-only short-phrase musical analysis prototype** and automated tests. No frontend, singing voice model, training, lyrics interpretation, or interactive musical-agent reasoning yet.
+**Current status:** CPU pitch analysis supports YIN and an optional, code-tested RMVPE ONNX adapter, plus a comparison CLI. Actual RMVPE checkpoint inference is pending. No frontend, singing voice generation, training, lyrics interpretation, or conversational agent.
 
 ## Intended experience
 
@@ -55,7 +55,7 @@ python -m venv .venv
 
 Open `http://127.0.0.1:8000/health` and `http://127.0.0.1:8000/ready`. The first checks API liveness, and the second requires the configured storage directory. The endpoints do not download or load models.
 
-The original 9 tests passed on the user's Windows laptop. The **expanded 29-test suite** passed in the isolated development environment and still needs testing on Windows Python 3.12. See `PROJECT_CONTEXT.md`.
+The original 9 tests passed on the user's Windows laptop. The **expanded 41-test suite** passed in the isolated development environment and still needs testing on Windows Python 3.12. See `PROJECT_CONTEXT.md`.
 
 ## Stage 1: analyze a completed vocal phrase
 
@@ -78,3 +78,43 @@ Open `http://127.0.0.1:8000/docs`, expand **POST /analyze**, choose **Try it out
 The decoder now uses a **temporary seekable file** instead of piping the upload into FFmpeg. This improves compatibility with M4A/MP4 recordings that require seeking; the temporary file is automatically deleted after processing. The uploaded filename is not used as a disk path. This change was tested with FFmpeg-generated AAC/M4A files, but the specific user recording still requires a Windows retest. `GET /analyze` returns HTTP 405 by design; submit files using **POST /analyze** in Swagger.
 
 **Experimental limitation:** These are heuristic measurements, **not** verified notes, accurate lyrics, beat transcription, or an AI singer rendering. Onsets, rests, glissando, ornaments, noise and vocal breaths may be wrong. Real microphone recordings must be evaluated next. There is no plotted musical score or generated singing yet.
+
+
+## Optional RMVPE neural pitch comparison
+
+YIN remains the default for `POST /analyze`. Select `POST /analyze?estimator=rmvpe` to try **RMVPE via ONNX Runtime CPU**. The neural estimator is optional and **never automatically downloads weights**. If the checkpoint or optional dependency is missing, the endpoint returns HTTP 503 without disrupting YIN.
+
+On the Windows laptop, from the project root:
+
+```powershell
+cd C:\Users\nithi\AI-Singer
+git pull --ff-only
+.\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu'
+cd backend
+.\.venv\Scripts\python -m pip install -e ".[dev,rmvpe]"
+.\.venv\Scripts\python -m pytest -q
+```
+
+After reviewing the checkpoint source and rights for your intended use, manually download the canonical `rmvpe.onnx` to the Seagate drive. The existing folder is created by the storage initializer:
+
+```powershell
+$model = Join-Path $env:AI_SINGER_STORAGE_ROOT 'models\audio_analysis\rmvpe.onnx'
+if (-not (Test-Path $model)) {
+    Invoke-WebRequest -Uri 'https://huggingface.co/lj1995/VoiceConversionWebUI/resolve/main/rmvpe.onnx?download=true' -OutFile $model
+}
+(Get-FileHash -Algorithm SHA256 $model).Hash.ToLower()
+```
+
+Expected SHA-256: `5370e71ac80af8b4b7c793d27efd51fd8bf962de3a7ede0766dac0befa3660fd`. The adapter rejects mismatched weights and uses CPU by default. An existing compatible checkpoint may be selected through absolute `AI_SINGER_RMVPE_MODEL`, but it must match the canonical checksum.
+
+Benchmark the same 1–15-second solo clip through both algorithms:
+
+```powershell
+$clip = 'C:\path\to\Test 1.m4a' # Replace with your recording's actual location
+$report = Join-Path $env:AI_SINGER_STORAGE_ROOT 'outputs\previews\yin-rmvpe-comparison.json'
+.\.venv\Scripts\python -m ai_singer.pitch_benchmark "$clip" --output "$report"
+```
+
+The result includes both pitch contours, runtime, voiced-frame overlap, median **difference between algorithms** in cents, and octave-like disagreements. **Agreement is not ground-truth accuracy**. Neither estimator has been benchmarked with the actual RMVPE checkpoint on the user's Windows system yet.
+
+Source: <https://github.com/NewComer00/rmvpe-onnx> (Python API, checkpoint URL and hash). Verify third-party code/model distribution and commercial-use rights before production.
