@@ -2,7 +2,7 @@
 
 AI Singer is a planned interactive AI singing studio in which a music director sings a melody, waits for the AI to listen and analyze it, then hears it reproduced by a selectable male or female AI singing voice. The director can correct sections or request optional creative alternatives.
 
-**Current status:** CPU pitch analysis supports YIN and an optional, code-tested RMVPE ONNX adapter, plus a comparison CLI. Actual RMVPE checkpoint inference is pending. No frontend, singing voice generation, training, lyrics interpretation, or conversational agent.
+**Current status:** CPU-based YIN and RMVPE analysis and a local Pitch Lab visual comparison page. RMVPE inference has run successfully on the user's Windows machine; stable-note segmentation and octave review remain experimental. No full React studio, singing voice model, training, lyrics interpretation or conversational agent.
 
 ## Intended experience
 
@@ -55,7 +55,7 @@ python -m venv .venv
 
 Open `http://127.0.0.1:8000/health` and `http://127.0.0.1:8000/ready`. The first checks API liveness, and the second requires the configured storage directory. The endpoints do not download or load models.
 
-The original 9 tests passed on the user's Windows laptop. The **expanded 41-test suite** passed in the isolated development environment and still needs testing on Windows Python 3.12. See `PROJECT_CONTEXT.md`.
+The original 9 tests passed on the user's Windows laptop. The pre-change 41-test suite passed in the isolated development environment and still needs testing on Windows Python 3.12. See `PROJECT_CONTEXT.md`.
 
 ## Stage 1: analyze a completed vocal phrase
 
@@ -118,3 +118,31 @@ $report = Join-Path $env:AI_SINGER_STORAGE_ROOT 'outputs\previews\yin-rmvpe-comp
 The result includes both pitch contours, runtime, voiced-frame overlap, median **difference between algorithms** in cents, and octave-like disagreements. **Agreement is not ground-truth accuracy**. Neither estimator has been benchmarked with the actual RMVPE checkpoint on the user's Windows system yet.
 
 Source: <https://github.com/NewComer00/rmvpe-onnx> (Python API, checkpoint URL and hash). Verify third-party code/model distribution and commercial-use rights before production.
+
+## Pitch Lab — experimental musical review
+
+The backend now serves a local visualization page at **http://127.0.0.1:8000/pitch-lab**. In the PowerShell session that will run the API:
+
+```powershell
+cd C:\Users\nithi\AI-Singer
+git pull --ff-only
+.\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu'
+cd backend
+.\.venv\Scripts\python -m pip install -e ".[dev,rmvpe]"
+.\.venv\Scripts\python -m pytest -q
+.\.venv\Scripts\python -m uvicorn ai_singer.main:app --reload
+```
+
+Upload a completed 1–15-second phrase. Choose **Compare YIN + RMVPE**, **YIN only** (no checkpoint required), or **RMVPE only**. Pitch Lab displays both measured contours, approximate stable pitch cores, and reviewable disagreement intervals. Use the built-in audio player and click the graph to seek the selected recording. The results may be saved as JSON locally; recordings are not intentionally saved permanently by this API.
+
+The existing `POST /analyze` continues to return `pitch_track` but its `note_events` now represent **stable pitch cores**, not every quantized pitch fluctuation. New fields `pitch_transitions` and `octave_jump_candidates` distinguish glides and suspicious octave excursions. No raw pitch measurements are automatically corrected. The new `POST /compare` returns both analyses and groups continuous disagreements for review. A missing RMVPE checkpoint returns HTTP 503 in comparison mode; YIN-only remains usable.
+
+**Reference evaluation (optional):** To measure actual accuracy, annotate an independent known-pitch reference as `backend/examples/pitch-reference.example.json` shows. Each segment needs a start, end and MIDI note, or `null` for an explicitly known rest. From `backend/`:
+
+```powershell
+.\.venv\Scripts\python -m ai_singer.pitch_validation "$report" "C:\path\to\my-reference.json"
+```
+
+Here `$report` is the saved JSON from `python -m ai_singer.pitch_benchmark` on the *same* recording. The evaluator reports median absolute pitch error (cents), missed voiced frames, voiced frames inside annotated silence, and octave-like errors. It **excludes unlabeled intervals**. Do not use the example annotations with unrelated singing or treat agreement between two estimators as ground truth.
+
+**Validation status:** A development-container mirror passed 67 tests covering musical glides, steady pitches, short vs sustained octave changes, API uploads, reference metrics and the visual page. The final GitHub file tree and user Windows run still need independent acceptance; no actual user recording or known-note annotations were supplied for musical ground truth.

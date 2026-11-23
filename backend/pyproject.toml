@@ -32,3 +32,6 @@ include = ["ai_singer*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.package-data]
+ai_singer = ["static/*.html"]

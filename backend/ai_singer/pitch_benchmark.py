@@ -22,8 +22,26 @@ def compare_results(yin: dict, rmvpe: dict) -> dict:
     r = np.asarray([f["midi_note"] if f["midi_note"] is not None else np.nan for f in r_frames])
     both = np.isfinite(y) & np.isfinite(r)
     distance_cents = np.abs(y[both] - r[both]) * 100
+    all_cents = np.full(len(y), np.nan)
+    all_cents[both] = distance_cents
+    active = np.isfinite(all_cents) & (all_cents >= 100)
+    edges = np.diff(np.r_[False, active, False].astype(int))
+    spans = []
+    for start, stop in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)):
+        if stop - start < 2:
+            continue
+        cents = all_cents[start:stop]
+        octave_like = np.count_nonzero((cents >= 1050) & (cents <= 1350)) >= (stop - start) / 2
+        spans.append({
+            "start_seconds": y_frames[start]["time_seconds"],
+            "end_seconds": round(y_frames[stop - 1]["time_seconds"] + .02, 3),
+            "median_absolute_disagreement_cents": round(float(np.median(cents)), 2),
+            "classification": "octave_like" if octave_like else "pitch_disagreement",
+            "status": "needs_review",
+        })
     return {
         "frame_count": len(y),
+        "disagreement_intervals": spans,
         "yin_voiced_frames": int(np.count_nonzero(np.isfinite(y))),
         "rmvpe_voiced_frames": int(np.count_nonzero(np.isfinite(r))),
         "overlapping_voiced_frames": int(np.count_nonzero(both)),
@@ -48,6 +66,12 @@ def benchmark_audio(data: bytes) -> dict:
         "duration_seconds": yin["duration_seconds"],
         "runtime_seconds": {"yin": round(yin_seconds, 3), "rmvpe": round(rmvpe_seconds, 3)},
         "agreement": compare_results(yin, rmvpe),
+        "event_summary": {
+            "yin_stable_pitch_cores": len(yin["note_events"]),
+            "rmvpe_stable_pitch_cores": len(rmvpe["note_events"]),
+            "yin_octave_candidates": len(yin["octave_jump_candidates"]),
+            "rmvpe_octave_candidates": len(rmvpe["octave_jump_candidates"]),
+        },
         "yin": yin,
         "rmvpe": rmvpe,
     }

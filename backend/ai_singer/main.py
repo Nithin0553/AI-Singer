@@ -2,7 +2,10 @@
 
 from typing import Literal
 
+from pathlib import Path
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
 from ai_singer.audio_analysis import (
     MAX_UPLOAD_BYTES,
@@ -11,6 +14,7 @@ from ai_singer.audio_analysis import (
     analyze_audio,
     decode_audio,
 )
+from ai_singer.pitch_benchmark import benchmark_audio
 from ai_singer.rmvpe_pitch import RMVPEUnavailable
 from ai_singer.storage import StorageConfigurationError, configured_storage_root
 
@@ -46,3 +50,22 @@ def analyze(file: UploadFile = File(...), estimator: Literal["yin", "rmvpe"] = "
         raise HTTPException(status_code=503, detail=str(error)) from error
     finally:
         file.file.close()
+
+@app.post("/compare")
+def compare(file: UploadFile = File(...)) -> dict:
+    """Compare two estimators on one recording; results are not ground truth."""
+    try:
+        recording = file.file.read(MAX_UPLOAD_BYTES + 1)
+        return benchmark_audio(recording)
+    except AudioInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except (AudioDecoderUnavailable, RMVPEUnavailable) as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    finally:
+        file.file.close()
+
+
+@app.get("/pitch-lab", include_in_schema=False)
+def pitch_lab() -> FileResponse:
+    """Local visual comparison page; uploaded audio is not saved permanently."""
+    return FileResponse(Path(__file__).parent / "static" / "pitch_lab.html", media_type="text/html")

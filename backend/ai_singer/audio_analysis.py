@@ -8,7 +8,7 @@ import tempfile
 
 import librosa
 import numpy as np
-from scipy.ndimage import median_filter
+from ai_singer.musical_events import segment_pitch
 
 SAMPLE_RATE = 16_000
 HOP_LENGTH = 320
@@ -156,24 +156,12 @@ def analyze_audio(samples: np.ndarray, estimator: str = "yin") -> dict:
     ]
 
     # Candidate notes require stability; rapid slides intentionally remain in the pitch contour.
-    notes: list[dict] = []
-    quantized = np.full(len(midi), -1, dtype=int)
-    for interval in _segments(voiced, frame_step, min_frames=4, duration=duration_seconds):
-        begin = round(interval["start_seconds"] / frame_step)
-        end = round(interval["end_seconds"] / frame_step)
-        quantized[begin:end] = median_filter(np.rint(midi[begin:end]).astype(int), size=5)
-    distinct = np.concatenate(([True], quantized[1:] != quantized[:-1], [True]))
-    changes = np.flatnonzero(distinct)
-    for begin, end in zip(changes[:-1], changes[1:]):
-        if quantized[begin] >= 0 and end - begin >= 4:
-            notes.append({
-                "start_seconds": float(round(begin * frame_step, 3)),
-                "end_seconds": float(round(min(end * frame_step, duration_seconds), 3)),
-                "midi_note": int(quantized[begin]),
-                "frequency_hz": round(float(librosa.midi_to_hz(quantized[begin])), 2),
-            })
+    # Keep the measured contour; identify plateau cores separately from glides.
+    events = segment_pitch(midi, frame_step, duration_seconds)
 
-    warnings = ["Pitch and note boundaries are estimates, not a verified transcription."]
+    warnings = ["Stable pitch cores and boundaries are heuristic, not a verified note transcription."]
+    if events.octave_candidates:
+        warnings.append("Brief octave-like excursions need review; original pitch frames were not altered.")
     if not np.any(voiced):
         warnings.append("No reliable voiced pitch detected. Try a clear solo vocal recording.")
     return {
@@ -182,7 +170,9 @@ def analyze_audio(samples: np.ndarray, estimator: str = "yin") -> dict:
         "sample_rate_hz": SAMPLE_RATE,
         "hop_seconds": frame_step,
         "pitch_track": frames,
-        "note_events": notes,
+        "note_events": events.notes,
+        "pitch_transitions": events.transitions,
+        "octave_jump_candidates": events.octave_candidates,
         "quiet_intervals": _segments(quiet, frame_step, min_frames=4, duration=duration_seconds),
         "warnings": warnings,
     }

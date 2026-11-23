@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Singer — Pitch Lab</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:#f4f6f9;color:#182639}
+main{max-width:1100px;margin:auto;padding:28px 18px 55px}
+h1{margin:0;font-size:28px;letter-spacing:-.03em}h2{font-size:17px;margin:0}
+p{color:#53677e;line-height:1.5}
+.panel{background:#fff;border:1px solid #dce4ec;border-radius:16px;padding:22px;margin:20px 0;box-shadow:0 3px 18px #192b4008}
+.row{display:flex;flex-wrap:wrap;gap:13px;align-items:end}
+label{font-size:13px;font-weight:650;display:grid;gap:7px}
+input,select,button{font:inherit}
+input[type=file],select{border:1px solid #aab9c7;border-radius:8px;padding:9px;max-width:100%}
+button{border:0;border-radius:9px;padding:11px 16px;cursor:pointer;background:#1c5caa;color:white;font-weight:650}
+button:disabled{opacity:.45;cursor:wait}button.secondary{background:#eef2f8;color:#263c57}
+#status{min-height:1.5em;margin:12px 0;color:#35526d;font-size:14px}
+#status.error{color:#af3131}
+audio{width:100%;margin-top:10px}
+.hidden{display:none}
+#plot{display:block;width:100%;height:auto;background:#f9fbfd;border-radius:10px;cursor:crosshair}
+.legend,.metrics{display:flex;flex-wrap:wrap;gap:14px;margin:15px 0;color:#4b6277;font-size:13px}
+.metrics span{background:#eef3f8;padding:11px;border-radius:9px}
+.legend b{display:inline-block;width:16px;height:4px;margin-right:5px;vertical-align:middle}
+.note{font-size:13px}
+</style>
+</head>
+<body><main>
+<header><h1>AI Singer / Pitch Lab</h1><p>Listen to your recording while inspecting YIN, RMVPE, stable pitch regions, and possible octave errors.</p></header>
+<section class="panel">
+<h2>Analyze a completed phrase</h2>
+<p class="note">1–15 seconds, up to 10 MiB. Local experimental review tool; uploads are not intentionally saved permanently.</p>
+<form id="form" class="row">
+<label>Recording<input id="file" type="file" accept="audio/*,.m4a,.wav,.mp3,.webm" required></label>
+<label>Estimator<select id="mode"><option value="compare">Compare YIN + RMVPE</option><option value="yin">YIN only (no neural weights needed)</option><option value="rmvpe">RMVPE only</option></select></label>
+<button id="run" type="submit">Analyze</button>
+<button id="download" type="button" class="secondary" disabled>Save JSON</button>
+</form>
+<div id="status" role="status" aria-live="polite">Select a recording and choose Analyze.</div>
+<audio id="player" controls preload="metadata" aria-label="Original singing recording"></audio>
+</section>
+<section id="results" class="panel hidden">
+<h2>Pitch contour and review flags</h2>
+<div class="metrics" id="metrics"></div>
+<div class="legend"><span><b style="background:#0c67b7"></b>YIN</span><span><b style="background:#e07826"></b>RMVPE</span><span><b style="background:#1e8569"></b>Stable pitch cores</span><span><b style="background:#c64949"></b>Needs review</span></div>
+<canvas id="plot" width="1050" height="420" role="img" aria-label="Pitch curve over time, blue for YIN and orange for RMVPE; reviewed passages shaded."></canvas>
+<p class="note">Click the plot to seek the original audio. Green marks steady pitch *cores*, not necessarily true note onsets. Red indicates estimator disagreement or suspected octave mistakes.</p>
+<div id="summary"></div>
+</section></main>
+<script>
+(() => {
+  "use strict";
+  const id = name => document.getElementById(name);
+  const form = id("form"), file = id("file"), mode = id("mode"), status = id("status");
+  const player = id("player"), canvas = id("plot"), ctx = canvas.getContext("2d");
+  const results = id("results"), metrics = id("metrics"), summary = id("summary");
+  const run = id("run"), download = id("download");
+  const W = canvas.width, H = canvas.height, left = 60, right = 20, top = 20, bottom = 55;
+  let data = null, audioURL = null, low = 48, high = 72, duration = 1;
+  const px = t => left + t / duration * (W - left - right);
+  const py = m => H - bottom - (m - low) / (high - low) * (H - top - bottom);
+  function notice(message, error=false) { status.textContent = message; status.classList.toggle("error", error); }
+  function addMetric(label, value) {
+    const item = document.createElement("span");
+    item.textContent = label + ": " + value;
+    metrics.append(item);
+  }
+  function line(track, color) {
+    if (!track) return;
+    ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 2;
+    let previous = null;
+    for (const frame of track) {
+      if (!Number.isFinite(frame.midi_note)) { previous = null; continue; }
+      if (previous !== null && frame.time_seconds - previous <= .045) ctx.lineTo(px(frame.time_seconds),py(frame.midi_note));
+      else ctx.moveTo(px(frame.time_seconds),py(frame.midi_note));
+      previous = frame.time_seconds;
+    }
+    ctx.stroke();
+  }
+  function draw() {
+    if (!data) return;
+    const a = data.yin || (data.estimator === "yin" ? data : null);
+    const b = data.rmvpe || (data.estimator === "rmvpe" ? data : null);
+    const values = [...(a?.pitch_track || []), ...(b?.pitch_track || [])].map(f => f.midi_note).filter(Number.isFinite);
+    low = values.length ? Math.min(48, Math.floor(Math.min(...values)-2)) : 48;
+    high = values.length ? Math.max(72, Math.ceil(Math.max(...values)+2)) : 72;
+    duration = data.duration_seconds;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle="#f9fbfd"; ctx.fillRect(0,0,W,H);
+    const flagged = data.agreement ? data.agreement.disagreement_intervals : [
+      ...(a?.octave_jump_candidates || []), ...(b?.octave_jump_candidates || [])
+    ];
+    ctx.fillStyle="#fce3e3";
+    flagged.forEach(e => ctx.fillRect(px(e.start_seconds),top,Math.max(2,px(e.end_seconds)-px(e.start_seconds)),H-top-bottom));
+    ctx.textAlign="right"; ctx.font="12px system-ui";
+    for(let m=Math.ceil(low/2)*2;m<=high;m+=2) {
+      const y=py(m);ctx.strokeStyle="#e1e6ed";ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(W-right,y);ctx.stroke();
+      ctx.fillStyle="#526276";ctx.fillText(m,left-8,y+4);
+    }
+    ctx.textAlign="center";
+    for(let sec=0;sec<=duration;sec++) {
+      ctx.fillStyle="#526276";ctx.fillText(sec+"s",px(sec),H-bottom+22);
+    }
+    line(a?.pitch_track,"#0c67b7");
+    line(b?.pitch_track,"#e07826");
+    ctx.strokeStyle="#1e8569";ctx.lineWidth=5;
+    (b || a)?.note_events.forEach(n => {ctx.beginPath();ctx.moveTo(px(n.start_seconds),py(n.midi_note));ctx.lineTo(px(n.end_seconds),py(n.midi_note));ctx.stroke();});
+    if(player.currentTime>0 && player.currentTime<duration) {
+      ctx.strokeStyle="#182639";ctx.lineWidth=1.5;ctx.beginPath();
+      ctx.moveTo(px(player.currentTime),top);ctx.lineTo(px(player.currentTime),H-bottom);ctx.stroke();
+    }
+  }
+  function show(result) {
+    data=result;results.classList.remove("hidden");metrics.replaceChildren();summary.replaceChildren();
+    addMetric("Duration",result.duration_seconds.toFixed(2)+"s");
+    if (result.agreement) {
+      addMetric("Both voiced",result.agreement.overlapping_voiced_frames);
+      addMetric("Median difference",result.agreement.median_absolute_disagreement_cents === null ? "—" : result.agreement.median_absolute_disagreement_cents+" cents");
+      addMetric("Review intervals",result.agreement.disagreement_intervals.length);
+    }
+    const track=result.rmvpe || result.yin || result;
+    addMetric("Stable pitch cores",track.note_events.length);
+    const para=document.createElement("p");
+    para.className="note";
+    para.textContent=track.pitch_transitions.length+" pitch movement regions; "+track.octave_jump_candidates.length+" octave-like candidates. Counts are unverified.";
+    summary.append(para);
+    draw();
+  }
+  form.addEventListener("submit",async e => {
+    e.preventDefault();
+    const recording=file.files[0];if(!recording)return;
+    if(recording.size>10*1024*1024){notice("Audio exceeds the 10 MiB limit.",true);return;}
+    if(audioURL)URL.revokeObjectURL(audioURL);
+    audioURL=URL.createObjectURL(recording);player.src=audioURL;
+    data=null;results.classList.add("hidden");download.disabled=true;run.disabled=true;
+    notice("Analyzing; CPU pitch estimation may take a few seconds…");
+    const body=new FormData();body.append("file",recording);
+    const endpoint=mode.value==="compare"?"/compare":"/analyze?estimator="+encodeURIComponent(mode.value);
+    try{
+      const response=await fetch(endpoint,{method:"POST",body});
+      const result=await response.json();
+      if(!response.ok)throw new Error(typeof result.detail==="string"?result.detail:"Analysis failed (HTTP "+response.status+").");
+      show(result);download.disabled=false;notice("Ready. Play your audio and click the graph to inspect pitch.");
+    }catch(error){notice(String(error.message || error),true);}
+    finally{run.disabled=false;}
+  });
+  download.addEventListener("click",() => {
+    if(!data)return;
+    const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+    const a=document.createElement("a");a.href=url;a.download="ai-singer-pitch-report.json";a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
+  canvas.addEventListener("click",event => {
+    if(!data || !Number.isFinite(player.duration))return;
+    const rect=canvas.getBoundingClientRect(),local=(event.clientX-rect.left)*W/rect.width;
+    player.currentTime=Math.max(0,Math.min(player.duration,(local-left)*duration/(W-left-right)));
+    draw();
+  });
+  player.addEventListener("timeupdate",draw);
+  const animate=()=>{if(!player.paused)draw();requestAnimationFrame(animate);};
+  requestAnimationFrame(animate);
+  window.addEventListener("beforeunload",()=>{if(audioURL)URL.revokeObjectURL(audioURL);});
+})();
+</script></body></html>

@@ -1,0 +1,7 @@
+{
+  "segments": [
+    {"start_seconds": 0.3, "end_seconds": 0.8, "midi_note": 57},
+    {"start_seconds": 0.8, "end_seconds": 1.0, "midi_note": null},
+    {"start_seconds": 1.0, "end_seconds": 1.5, "midi_note": 60}
+  ]
+}
