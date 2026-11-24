@@ -27,6 +27,18 @@ audio{width:100%;margin-top:10px}
 .metrics span{background:#eef3f8;padding:11px;border-radius:9px}
 .legend b{display:inline-block;width:16px;height:4px;margin-right:5px;vertical-align:middle}
 .note{font-size:13px}
+.annotation-fields{margin-top:16px;align-items:end}
+.annotation-fields input{border:1px solid #aab9c7;border-radius:8px;padding:9px;width:105px}
+.annotation-fields button{font-size:13px}
+.annotation-list{display:grid;gap:8px;margin:13px 0}
+.annotation-item{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:9px 11px;border:1px solid #dce4ec;border-radius:9px;background:#f9fbfd;font-size:13px}
+.annotation-item span{flex:1;min-width:155px}
+.annotation-item button,.annotation-actions button{font-size:13px;padding:8px 11px}
+.annotation-actions{margin:18px 0}
+.annotation-scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.score-item{border:1px solid #dce4ec;border-radius:9px;background:#f9fbfd;padding:12px}
+.score-item p{font-size:13px;margin:5px 0}
+#annStatus.error{color:#af3131}
 #voicingReview{margin-top:18px}
 #voicingReview h3{font-size:15px;margin:0 0 5px}
 .review-gaps{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
@@ -61,7 +73,32 @@ audio{width:100%;margin-top:10px}
 <p class="note">One estimator reports pitch while the other does not. Select a time to listen; neither estimate is automatically correct.</p>
 <div id="voicingLinks" class="review-gaps"></div>
 </section>
-</section></main>
+</section>
+<section id="annotationPanel" class="panel hidden" aria-label="Manual performance reference">
+<h2>Mark your performance</h2>
+<p class="note">Listen to the original voice and mark held-note interiors, definite rests and glides. Enter a <strong>known or independently checked</strong> MIDI note (A3 = 57, C4 = 60). Do not copy YIN/RMVPE predictions as ground truth. Only labeled note/rest windows are scored; glides are reviewed separately.</p>
+<div class="row annotation-fields">
+<label>Label<select id="annKind"><option value="note">Held note</option><option value="rest">Quiet / rest</option><option value="glide">Glide</option></select></label>
+<label>Start (seconds)<input id="annStart" type="number" min="0" step="0.01" value="0"></label>
+<button type="button" id="annStartNow" class="secondary">Start at playhead</button>
+<label>End (seconds)<input id="annEnd" type="number" min="0" step="0.01" value="1"></label>
+<button type="button" id="annEndNow" class="secondary">End at playhead</button>
+<label id="annNoteField">Known MIDI note<input id="annMidi" type="number" min="0" max="127" step="1" value="57"></label>
+<label id="annDirectionField" class="hidden">Glide direction<select id="annDirection"><option value="up">Up</option><option value="down">Down</option><option value="unknown">Unknown</option></select></label>
+<button type="button" id="annAdd">Add interval</button>
+<button type="button" id="annCancel" class="secondary hidden">Cancel edit</button>
+</div>
+<div id="annStatus" role="status" aria-live="polite" class="note">No reference intervals yet.</div>
+<div id="annList" class="annotation-list"></div>
+<div class="row annotation-actions">
+<button type="button" id="annScore" disabled>Score against labels</button>
+<button type="button" id="annExport" class="secondary" disabled>Save reference JSON</button>
+<label>Load reference JSON<input id="annImport" type="file" accept=".json,application/json"></label>
+<button type="button" id="annClear" class="secondary" disabled>Clear labels</button>
+</div>
+<div id="annScores" class="annotation-scores" aria-live="polite"></div>
+</section>
+</main>
 <script>
 (() => {
   "use strict";
@@ -126,6 +163,11 @@ audio{width:100%;margin-top:10px}
     line(b?.pitch_track,"#e07826");
     ctx.strokeStyle="#1e8569";ctx.lineWidth=5;
     (b || a)?.note_events.forEach(n => {ctx.beginPath();ctx.moveTo(px(n.start_seconds),py(n.midi_note));ctx.lineTo(px(n.end_seconds),py(n.midi_note));ctx.stroke();});
+    manualLabels.forEach(item => {
+      ctx.fillStyle = item.kind === "note" ? "#7665c4" : item.kind === "rest" ? "#707d8e" : "#188d9d";
+      ctx.fillRect(px(item.start_seconds), H-bottom-11,
+        Math.max(2,px(item.end_seconds)-px(item.start_seconds)), 8);
+    });
     if(player.currentTime>0 && player.currentTime<duration) {
       ctx.strokeStyle="#182639";ctx.lineWidth=1.5;ctx.beginPath();
       ctx.moveTo(px(player.currentTime),top);ctx.lineTo(px(player.currentTime),H-bottom);ctx.stroke();
@@ -155,6 +197,7 @@ audio{width:100%;margin-top:10px}
   }
   function show(result) {
     data=result;results.classList.remove("hidden");metrics.replaceChildren();summary.replaceChildren();
+    resetManual();annotationPanel.classList.remove("hidden");
     showVoicingIntervals(result.agreement?.voicing_disagreement_intervals || []);
     addMetric("Duration",result.duration_seconds.toFixed(2)+"s");
     if (result.agreement) {
@@ -182,7 +225,7 @@ audio{width:100%;margin-top:10px}
     if(recording.size>10*1024*1024){notice("Audio exceeds the 10 MiB limit.",true);return;}
     if(audioURL)URL.revokeObjectURL(audioURL);
     audioURL=URL.createObjectURL(recording);player.src=audioURL;
-    data=null;results.classList.add("hidden");download.disabled=true;run.disabled=true;
+    data=null;results.classList.add("hidden");annotationPanel.classList.add("hidden");manualLabels=[];download.disabled=true;run.disabled=true;
     notice("Analyzing; CPU pitch estimation may take a few seconds…");
     const body=new FormData();body.append("file",recording);
     const endpoint=mode.value==="compare"?"/compare":"/analyze?estimator="+encodeURIComponent(mode.value);
@@ -210,5 +253,158 @@ audio{width:100%;margin-top:10px}
   const animate=()=>{if(!player.paused)draw();requestAnimationFrame(animate);};
   requestAnimationFrame(animate);
   window.addEventListener("beforeunload",()=>{if(audioURL)URL.revokeObjectURL(audioURL);});
+
+  // Manual labels remain local until the user explicitly exports them.
+  const annotationPanel = id("annotationPanel"), annKind = id("annKind"), annStart = id("annStart"), annEnd = id("annEnd");
+  const annMidi = id("annMidi"), annDirection = id("annDirection"), annNoteField = id("annNoteField"), annDirectionField = id("annDirectionField");
+  const annAdd = id("annAdd"), annCancel = id("annCancel"), annStartNow = id("annStartNow"), annEndNow = id("annEndNow");
+  const annStatus = id("annStatus"), annList = id("annList"), annScore = id("annScore"), annScores = id("annScores");
+  const annExport = id("annExport"), annImport = id("annImport"), annClear = id("annClear");
+  let manualLabels = [], editingIndex = null;
+  const timeText = n => Number(n).toFixed(2) + "s";
+  function labelName(item) {
+    if (item.kind === "note") return "Held MIDI " + item.midi_note;
+    if (item.kind === "rest") return "Rest";
+    return "Glide " + item.direction;
+  }
+  function annotationReference() {
+    const ordered = [...manualLabels].sort((a,b) => a.start_seconds-b.start_seconds);
+    return {
+      description: "User-marked performance reference; not independently verified ground truth.",
+      segments: ordered.filter(item => item.kind !== "glide").map(item => ({
+        start_seconds: item.start_seconds, end_seconds: item.end_seconds,
+        midi_note: item.kind === "rest" ? null : item.midi_note
+      })),
+      glides: ordered.filter(item => item.kind === "glide").map(item => ({
+        start_seconds: item.start_seconds, end_seconds: item.end_seconds, direction: item.direction
+      }))
+    };
+  }
+  function validLabels(items) {
+    if (!Array.isArray(items) || items.length > 200) throw Error("Use no more than 200 intervals.");
+    const ordered = [...items].sort((a,b) => a.start_seconds-b.start_seconds);
+    for (let i=0;i<ordered.length;i++) {
+      const x = ordered[i];
+      if (!Number.isFinite(x.start_seconds) || !Number.isFinite(x.end_seconds) ||
+          x.start_seconds < 0 || x.end_seconds <= x.start_seconds || x.end_seconds > duration + .000001)
+        throw Error("Every interval needs valid start/end times within the recording.");
+      if (i && x.start_seconds < ordered[i-1].end_seconds - .000001) throw Error("Labeled intervals cannot overlap.");
+      if (x.kind === "note" && (!Number.isInteger(x.midi_note) || x.midi_note < 0 || x.midi_note > 127))
+        throw Error("Held notes need an independently known MIDI number (0–127).");
+      if (x.kind === "glide" && !["up", "down", "unknown"].includes(x.direction))
+        throw Error("Choose a glide direction.");
+      if (!["note", "rest", "glide"].includes(x.kind)) throw Error("Unknown interval type.");
+    }
+  }
+  function annotationNotice(message, error=false) {
+    annStatus.textContent = message;annStatus.classList.toggle("error", error);
+  }
+  function kindFields() {
+    annNoteField.classList.toggle("hidden", annKind.value !== "note");
+    annDirectionField.classList.toggle("hidden", annKind.value !== "glide");
+  }
+  function resetEdit() {editingIndex=null;annAdd.textContent="Add interval";annCancel.classList.add("hidden");}
+  function renderLabels() {
+    annList.replaceChildren();
+    manualLabels.forEach((item, index) => {
+      const row = document.createElement("div");row.className="annotation-item";
+      const label = document.createElement("span");
+      label.textContent=timeText(item.start_seconds)+"–"+timeText(item.end_seconds)+" · "+labelName(item);
+      const go=document.createElement("button");go.type="button";go.className="secondary";go.textContent="Listen";
+      go.addEventListener("click", () => {if(Number.isFinite(player.duration))player.currentTime=Math.min(player.duration,item.start_seconds);draw();});
+      const edit=document.createElement("button");edit.type="button";edit.className="secondary";edit.textContent="Edit";
+      edit.addEventListener("click", () => {
+        editingIndex=index;annStart.value=item.start_seconds;annEnd.value=item.end_seconds;
+        annKind.value=item.kind;if(item.kind==="note")annMidi.value=item.midi_note;
+        if(item.kind==="glide")annDirection.value=item.direction;
+        kindFields();annAdd.textContent="Update interval";annCancel.classList.remove("hidden");
+      });
+      const del=document.createElement("button");del.type="button";del.className="secondary";del.textContent="Remove";
+      del.addEventListener("click", () => {manualLabels.splice(index,1);resetEdit();renderLabels();});
+      row.append(label,go,edit,del);annList.append(row);
+    });
+    annScore.disabled=!data || !manualLabels.some(item=>item.kind!=="glide");
+    annExport.disabled=manualLabels.length===0;annClear.disabled=manualLabels.length===0;
+    annScores.replaceChildren();
+    annotationNotice(manualLabels.length+" manual interval(s). Save your reference before changing recordings.");
+    if(data)draw();
+  }
+  function addManualLabel() {
+    try {
+      if(!data)throw Error("Analyze a recording before annotating.");
+      if(annStart.value==="" || annEnd.value==="")throw Error("Enter start and end times.");
+      const item={kind:annKind.value,start_seconds:Number(annStart.value),end_seconds:Number(annEnd.value)};
+      if(item.kind==="note") {
+        if(annMidi.value==="")throw Error("Enter a known MIDI note.");
+        item.midi_note=Number(annMidi.value);
+      }
+      if(item.kind==="glide")item.direction=annDirection.value;
+      const next=[...manualLabels];
+      if(editingIndex===null)next.push(item);else next[editingIndex]=item;
+      validLabels(next);
+      manualLabels=next.sort((a,b)=>a.start_seconds-b.start_seconds);resetEdit();renderLabels();
+    }catch(error){annotationNotice(String(error.message||error),true);}
+  }
+  function resetManual() {
+    manualLabels=[];resetEdit();annotationPanel.classList.toggle("hidden",!data);renderLabels();
+  }
+  function exportJson(reference) {
+    const url=URL.createObjectURL(new Blob([JSON.stringify(reference,null,2)],{type:"application/json"}));
+    const link=document.createElement("a");link.href=url;link.download="ai-singer-manual-reference.json";link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  annKind.addEventListener("change",kindFields);
+  annAdd.addEventListener("click",addManualLabel);
+  annCancel.addEventListener("click",resetEdit);
+  annStartNow.addEventListener("click",()=>{if(Number.isFinite(player.currentTime))annStart.value=player.currentTime.toFixed(2);});
+  annEndNow.addEventListener("click",()=>{if(Number.isFinite(player.currentTime))annEnd.value=player.currentTime.toFixed(2);});
+  annClear.addEventListener("click",resetManual);
+  annExport.addEventListener("click",()=>{if(manualLabels.length)exportJson(annotationReference());});
+  annImport.addEventListener("change",async()=>{
+    const sourceFile=annImport.files?.[0];if(!sourceFile||!data)return;
+    try {
+      if(sourceFile.size>65536)throw Error("Reference JSON is too large.");
+      const source=JSON.parse(await sourceFile.text());
+      if(!Array.isArray(source.segments)||!Array.isArray(source.glides||[]))throw Error("Invalid reference JSON.");
+      const next=[...source.segments.map(x=>({kind:x.midi_note===null?"rest":"note",start_seconds:x.start_seconds,end_seconds:x.end_seconds,midi_note:x.midi_note})),
+        ...(source.glides||[]).map(x=>({kind:"glide",start_seconds:x.start_seconds,end_seconds:x.end_seconds,direction:x.direction}))];
+      validLabels(next);
+      manualLabels=next.sort((a,b)=>a.start_seconds-b.start_seconds);resetEdit();renderLabels();
+      annotationNotice("Reference loaded. Verify that these labels belong to this recording.");
+    }catch(error){annotationNotice(String(error.message||error),true);}
+    annImport.value="";
+  });
+  annScore.addEventListener("click",async()=>{
+    if(!data)return;
+    try {
+      validLabels(manualLabels);
+      const reference=annotationReference();
+      if(!reference.segments.length)throw Error("Add at least one held-note or rest interval to score.");
+      annScore.disabled=true;annotationNotice("Scoring against manually entered intervals…");
+      const response=await fetch("/score-reference",{
+        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({analysis:data,reference})
+      });
+      const result=await response.json();
+      if(!response.ok)throw Error(typeof result.detail==="string"?result.detail:"Scoring failed (HTTP "+response.status+").");
+      annScores.replaceChildren();
+      for(const [model,score] of Object.entries(result.scores)) {
+        const card=document.createElement("div");card.className="score-item";
+        const heading=document.createElement("strong");heading.textContent=model.toUpperCase();
+        const pitch=document.createElement("p");
+        pitch.textContent="Known-note frames: "+score.pitch_frames_detected+"/"+score.labeled_pitch_frames+
+          " · Median deviation: "+(score.median_absolute_pitch_error_cents===null?"n/a":score.median_absolute_pitch_error_cents+" cents")+
+          " · Missed note frames: "+score.missed_voiced_frames+
+          " · Detected pitch during labeled rests: "+score.voiced_on_annotated_quiet_frames;
+        const glide=document.createElement("p");
+        const reviews=(score.glide_reviews||[]).map(g=>
+          timeText(g.start_seconds)+"–"+timeText(g.end_seconds)+" ("+g.observed_direction+")").join(", ");
+        glide.textContent="Glide direction reviews: "+(reviews || "No glides labeled");
+        card.append(heading,pitch,glide);annScores.append(card);
+      }
+      annotationNotice("Scored against manual labels, not independently verified ground truth.");
+    }catch(error){annotationNotice(String(error.message||error),true);}
+    finally{annScore.disabled=false;}
+  });
+  kindFields();
 })();
 </script></body></html>

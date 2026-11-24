@@ -4,7 +4,7 @@ from typing import Literal
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from ai_singer.audio_analysis import (
@@ -14,6 +14,7 @@ from ai_singer.audio_analysis import (
     analyze_audio,
     decode_audio,
 )
+from ai_singer.annotation_review import score_annotations
 from ai_singer.pitch_benchmark import benchmark_audio
 from ai_singer.rmvpe_pitch import RMVPEUnavailable
 from ai_singer.storage import StorageConfigurationError, configured_storage_root
@@ -69,3 +70,12 @@ def compare(file: UploadFile = File(...)) -> dict:
 def pitch_lab() -> FileResponse:
     """Local visual comparison page; uploaded audio is not saved permanently."""
     return FileResponse(Path(__file__).parent / "static" / "pitch_lab.html", media_type="text/html")
+
+
+@app.post("/score-reference")
+def score_reference(payload: dict = Body(...)) -> dict:
+    """Score a manually labeled reference without persisting audio or labels."""
+    try:
+        return score_annotations(payload.get("analysis"), payload.get("reference"))
+    except (ValueError, KeyError, TypeError, OverflowError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error

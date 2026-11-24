@@ -187,3 +187,28 @@ In **Compare YIN + RMVPE** mode, Pitch Lab now distinguishes:
 The new comparison JSON keeps the original `agreement.disagreement_intervals` unchanged and adds `voicing_disagreement_intervals`, `rmvpe_only_voiced_frames`, and `yin_only_voiced_frames`. Click a colored band on the plot or a listed time range under **Voicing differences** to seek and listen to the original recording. Each span indicates **a model disagreement**, not which model is correct. Short one-frame differences remain visible, though they can reflect uncertainty around an onset.
 
 Re-analyze your original `Test 2.m4a` using the new version. The expected comparison from the previously uploaded report has **23 RMVPE-only voiced frames** and **1 YIN-only**, grouped into **six intervals**, including **6.16–6.36 s** and **9.26–9.38 s**. These are not independently verified correct pitches or sung-note boundaries. No model weights or new dependencies are needed.
+
+## Manual performance annotations in Pitch Lab
+
+The local Pitch Lab now includes **Mark your performance** beneath the original pitch comparison. This is intended for independently checked reference notes, not automatically inferred model predictions.
+
+1. Upload a finished 1–15-second recording and select **Analyze**. Listen to the original recording using the built-in player.
+2. Choose **Held note**, **Quiet / rest**, or **Glide**. Enter a start/end timestamp, or seek the player and use **Start at playhead** / **End at playhead**.
+3. For held notes, enter a **known MIDI note** (for example A3=57, C4=60) measured from an independent reference. Label only a stable interior interval; do not assume your actual sung note perfectly matches an intended piano note. For glides choose Up / Down / Unknown. Do not overlap labels.
+4. **Add interval**, then listen/edit/remove each entry. Use **Save reference JSON** to download your labels and **Load reference JSON** to resume a previous session. Importing labels does not prove they belong to the currently selected recording; check the timing.
+5. Choose **Score against labels** to evaluate each available YIN/RMVPE track. The API returns detected/expected held-note frames, missed pitched frames, pitches detected during labeled rests, median absolute deviation in cents, and separate glide direction reviews. Unlabeled time is excluded from note/rest scoring. The glide is **not** scored as a held note.
+
+**Privacy and evaluation limits:** Audio is processed as before; reference labels remain in the browser unless you explicitly export JSON or submit them to the local scoring endpoint. The backend does not persist annotations or audio in this operation. The result states \`manual_unverified\`, because manually entering a note is not independent proof that the singer actually performed that pitch. For true accuracy, obtain a separately confirmed reference (e.g., an instrument/reference tone and carefully audited performed-pitch annotation). This milestone does not add voice synthesis, lyric recognition or an autonomous musical director.
+
+**Windows verification (existing installation, no new models/dependencies):**
+
+\`\`\`powershell
+cd C:\Users\nithi\AI-Singer
+git pull --ff-only
+.\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu'
+cd backend
+.\.venv\Scripts\python -m pytest -q
+.\.venv\Scripts\python -m uvicorn ai_singer.main:app --reload
+\`\`\`
+
+After the server starts, open \`http://127.0.0.1:8000/pitch-lab\` and test marking/importing/exporting/scoring references. Original raw pitch tracks, red pitch review and amber/light-blue voicing-review markers are unchanged.
