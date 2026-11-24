@@ -4,8 +4,8 @@ from typing import Literal
 
 from pathlib import Path
 
-from fastapi import Body, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, Response
 
 from ai_singer.audio_analysis import (
     MAX_UPLOAD_BYTES,
@@ -79,3 +79,53 @@ def score_reference(payload: dict = Body(...)) -> dict:
         return score_annotations(payload.get("analysis"), payload.get("reference"))
     except (ValueError, KeyError, TypeError, OverflowError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/voices")
+def voices() -> dict:
+    """List locally authorized voice profiles (no filesystem paths exposed)."""
+    from ai_singer.voice_render import VoiceConfigurationError, list_voices
+    try:
+        return {"voices": list_voices()}
+    except VoiceConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.get("/voice-lab", include_in_schema=False)
+def voice_lab() -> FileResponse:
+    """Local-only voice conversion preview; it does not install any model."""
+    return FileResponse(Path(__file__).parent / "static" / "voice_lab.html", media_type="text/html")
+
+
+@app.post("/render-voice")
+def render_voice_preview(
+    file: UploadFile = File(...),
+    voice_id: str = Form(...),
+    authorized_use: bool = Form(False),
+) -> Response:
+    """Convert a short solo vocal using a user-provided, licensed local RVC voice."""
+    from ai_singer.voice_render import (
+        VoiceBusyError, VoiceConfigurationError, VoiceRenderError, render_voice,
+    )
+    try:
+        if not authorized_use:
+            raise HTTPException(status_code=403, detail="Confirm permission to use the recording and voice model.")
+        data = file.file.read(MAX_UPLOAD_BYTES + 1)
+        preview = render_voice(data, voice_id, authorized_use=True)
+        return Response(
+            content=preview, media_type="audio/wav",
+            headers={"Content-Disposition": 'attachment; filename="ai-singer-voice-preview.wav"',
+                     "Cache-Control": "no-store"},
+        )
+    except AudioInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except AudioDecoderUnavailable as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except VoiceBusyError as error:
+        raise HTTPException(status_code=429, detail=str(error)) from error
+    except VoiceConfigurationError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except VoiceRenderError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    finally:
+        file.file.close()

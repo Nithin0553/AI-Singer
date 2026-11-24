@@ -1,0 +1,12 @@
+{
+  "voices": [
+    {
+      "id": "my-licensed-voice",
+      "label": "My authorized voice",
+      "model": "my-licensed-voice/model.pth",
+      "speaker_id": 0,
+      "rights_confirmed": false,
+      "enabled": false
+    }
+  ]
+}

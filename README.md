@@ -212,3 +212,13 @@ cd backend
 \`\`\`
 
 After the server starts, open \`http://127.0.0.1:8000/pitch-lab\` and test marking/importing/exporting/scoring references. Original raw pitch tracks, red pitch review and amber/light-blue voicing-review markers are unchanged.
+
+## First singing voice output: Voice Lab
+
+Development has moved beyond pitch calibration to an **opt-in, local RVC voice-conversion preview**. The source singer supplies melody and timing; a separately installed, authorized target voice model changes vocal timbre. This is not text-to-song generation or a trained autonomous musical director, and the first voice output still requires a real checkpoint.
+
+Start the existing server, then open <http://127.0.0.1:8000/voice-lab> (also linked from Pitch Lab). Upload a finished solo recording, choose a ready voice profile from your Seagate drive, confirm you have permission for both the recording and voice model, render, then listen and download a WAV. Added endpoints: GET /voices and POST /render-voice; the existing analysis and annotation endpoints remain unchanged.
+
+**Before a real conversion:** Read [the separate RVC/authorized voice setup guide](docs/voice-render.md) and use backend/examples/voice-profiles.example.json as a disabled-by-default manifest template. Configure the independent RVC CLI Python runtime with AI_SINGER_RVC_ROOT and AI_SINGER_RVC_PYTHON; keep checkpoints under AI_SINGER_STORAGE_ROOT/models/voice_conversion. No training data, third-party weights, or preapproved male/female voices are included. Never enable a checkpoint without confirming permissions and provenance.
+
+**Verification boundary:** The rendering API, permission checks, temporary-file cleanup, subprocess and WAV handling were tested locally using a *fake RVC executable that copies a WAV*. No genuine model inference or rendered target singing voice has been verified on the user's Windows laptop yet. Routine pitch calibration is no longer a prerequisite; focus next on obtaining a real authorized voice model and listening to the resulting audio.

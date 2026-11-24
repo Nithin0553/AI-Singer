@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Singer — Voice Lab</title>
+<style>
+:root{color-scheme:light;font:15px/1.6 system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#203246;background:#f5f7fb}
+*{box-sizing:border-box}body{margin:0}main{max-width:900px;margin:0 auto;padding:35px 18px 70px}
+a{color:#185fa9}h1{font-size:31px;letter-spacing:-.7px;margin:0 0 4px}h2{font-size:18px;margin:0 0 12px}
+p{margin:8px 0 18px;color:#516172}.panel{background:#fff;border:1px solid #d8e0e9;border-radius:14px;padding:24px;margin-top:20px;box-shadow:0 6px 25px #1b375508}
+label{display:block;font-size:13px;font-weight:600;color:#334b63;margin:10px 0 5px}
+input[type=file],select{width:100%;padding:12px;border-radius:9px;border:1px solid #b4c2d0;background:#fff;font:inherit}
+button{background:#1863aa;color:white;border:0;border-radius:9px;padding:12px 21px;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.45;cursor:not-allowed}button:hover:not(:disabled){background:#104c85}
+.helper{font-size:13px;color:#596a7b}.warning{border-left:3px solid #b88a3a;background:#fff9ee;padding:12px;margin:14px 0;font-size:13px}
+.hidden{display:none}.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+input[type=checkbox]{width:18px;height:18px}audio{width:100%;margin:8px 0}.download{display:inline-block;padding:10px 15px;border:1px solid #1863aa;border-radius:9px;text-decoration:none}
+#status{min-height:24px;margin-top:14px}#status.error{color:#ad2838}#sourceFile{margin-bottom:8px}
+</style>
+</head>
+<body><main>
+<h1>AI Singer / Voice Lab</h1>
+<p>Convert a completed vocal phrase into an authorized target singing voice. Your melody and timing stay the source; results will depend on the voice model.</p>
+<p><a href="/pitch-lab">Back to Pitch Lab</a></p>
+<section class="panel">
+<h2>1 · Choose your recording</h2>
+<label for="sourceFile">Solo vocal (WAV, M4A, MP3 or WebM; 1–15 seconds, up to 10 MB)</label>
+<input type="file" id="sourceFile" accept="audio/*,.wav,.m4a,.mp3,.webm" />
+<div id="originalSection" class="hidden"><label>Original singing</label><audio id="original" controls preload="metadata"></audio></div>
+<h2>2 · Select an authorized voice</h2>
+<label for="voice">Available local profiles</label><select id="voice"><option value="">Loading voices…</option></select>
+<p class="helper" id="voiceHelp">Voice models must be explicitly configured on your external storage. Nothing is downloaded automatically.</p>
+<div class="warning">Use only voices you own or have explicit permission to use. The model may contain executable serialized data; review its source before placing it on the drive. No celebrity or third-party voice cloning without authorization.</div>
+<div class="row"><input type="checkbox" id="authorized"><label for="authorized">I have permission to use this recording and selected voice model.</label></div>
+<div class="row"><button type="button" id="render" disabled>Render voice preview</button><span id="status" role="status" aria-live="polite">Choose a recording and a ready voice.</span></div>
+</section>
+<section class="panel hidden" id="resultSection">
+<h2>3 · Listen and download</h2>
+<label for="converted">Converted voice preview</label><audio id="converted" controls preload="metadata"></audio>
+<a id="download" class="download" href="#" download="ai-singer-voice-preview.wav">Download WAV</a>
+<p class="helper">Listen for melody continuity, consonants and timing. This is a conversion preview, not a trained musical director or independently verified fidelity result.</p>
+</section>
+</main>
+<script>
+(() => {
+"use strict";
+const el = id => document.getElementById(id);
+const sourceFile=el("sourceFile"),voice=el("voice"),authorized=el("authorized"),render=el("render");
+const status=el("status"),original=el("original"),converted=el("converted"),download=el("download");
+const originalSection=el("originalSection"),resultSection=el("resultSection"),voiceHelp=el("voiceHelp");
+let srcURL=null, previewURL=null, loading=false;
+function statusText(message,error=false){status.textContent=message;status.classList.toggle("error",error);}
+function resetPreview(){if(previewURL){URL.revokeObjectURL(previewURL);previewURL=null;}converted.removeAttribute("src");resultSection.classList.add("hidden");}
+function refresh(){render.disabled=loading||!sourceFile.files?.length||!voice.value||!authorized.checked||voice.selectedOptions[0]?.disabled;}
+sourceFile.addEventListener("change",()=>{
+  if(srcURL)URL.revokeObjectURL(srcURL);srcURL=null;
+  resetPreview();const file=sourceFile.files?.[0];
+  if(file){srcURL=URL.createObjectURL(file);original.src=srcURL;originalSection.classList.remove("hidden");}
+  else{original.removeAttribute("src");originalSection.classList.add("hidden");}
+  refresh();
+});
+voice.addEventListener("change",()=>{resetPreview();refresh();});
+authorized.addEventListener("change",refresh);
+async function loadVoices(){
+ try{
+  const response=await fetch("/voices");const data=await response.json();
+  if(!response.ok)throw Error(typeof data.detail==="string"?data.detail:"Cannot load local voices.");
+  voice.replaceChildren();const placeholder=document.createElement("option");placeholder.value="";
+  placeholder.textContent=data.voices.length?"Choose a voice":"No authorized voice installed";voice.append(placeholder);
+  for(const item of data.voices){const opt=document.createElement("option");opt.value=item.id;
+   opt.textContent=item.label+(item.ready?"":" (checkpoint missing)");opt.disabled=!item.ready;voice.append(opt);}
+  voiceHelp.textContent=data.voices.length?"Select a voice with a confirmed local checkpoint.":"Configure a permitted voice in Dimpu/models/voice_conversion/voices.json, then refresh.";
+ }catch(error){voice.replaceChildren();const opt=document.createElement("option");opt.value="";opt.textContent="Voices unavailable";voice.append(opt);voiceHelp.textContent=String(error.message||error);}
+ refresh();
+}
+render.addEventListener("click",async()=>{
+ if(render.disabled)return;
+ resetPreview();loading=true;refresh();statusText("Rendering locally… this may take several minutes.");
+ try{
+  const form=new FormData();form.append("file",sourceFile.files[0]);form.append("voice_id",voice.value);form.append("authorized_use","true");
+  const response=await fetch("/render-voice",{method:"POST",body:form});
+  if(!response.ok){let detail="Voice conversion failed (HTTP "+response.status+").";
+   try{const error=await response.json();if(typeof error.detail==="string")detail=error.detail;}catch{}
+   throw Error(detail);
+  }
+  const blob=await response.blob();
+  if(!blob.size)throw Error("Voice renderer returned empty audio.");
+  previewURL=URL.createObjectURL(blob);converted.src=previewURL;download.href=previewURL;
+  resultSection.classList.remove("hidden");statusText("Preview ready. Compare it with the original.");
+ }catch(error){statusText(String(error.message||error),true);}
+ finally{loading=false;refresh();}
+});
+window.addEventListener("beforeunload",()=>{if(srcURL)URL.revokeObjectURL(srcURL);if(previewURL)URL.revokeObjectURL(previewURL);});
+loadVoices();
+})();
+</script></body></html>
