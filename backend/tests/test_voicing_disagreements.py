@@ -79,5 +79,10 @@ def test_pitch_lab_exposes_clickable_voicing_review():
     assert 'id="voicingReview"' in html.text
     assert 'id="voicingLinks"' in html.text
     assert "voicing_disagreement_intervals" in html.text
-    assert "only reports pitch" in html.text
+    # The accessible label is assembled dynamically with the model name.
+    # Validate its template and button interaction rather than literal
+    # finished text that cannot appear in the static HTML source.
+    assert 'button.setAttribute("aria-label"' in html.text
+    assert '" seconds; only " + model + " reports pitch"' in html.text
+    assert 'button.addEventListener("click"' in html.text
     assert 'src="http' not in html.text
