@@ -98,12 +98,13 @@ def test_pitch_lab_exposes_manually_edited_reference_and_score_controls():
     assert html.status_code == 200
     for field in ('id="annotationPanel"', 'id="annStartNow"', 'id="annEndNow"',
                   'id="annMidi"', 'id="annDirection"', 'id="annImport"',
-                  'id="annExport"', 'id="annScore"', 'id="annList"',
+                  'id="annExport"', 'id="annScore"', 'id="annSaveScores"', 'id="annList"',
                   'id="voicingLinks"'):
         assert field in html.text
     for phrase in ('"/score-reference"', 'annotationReference()', 'validLabels(',
                    'manualLabels.forEach(', 'annScore.addEventListener("click"',
-                   'annImport.addEventListener("change"'):
+                   'annImport.addEventListener("change"',
+                   'annSaveScores.addEventListener("click"'):
         assert phrase in html.text
     assert "Do not copy YIN/RMVPE predictions as ground truth." in html.text
     assert 'src="http' not in html.text
