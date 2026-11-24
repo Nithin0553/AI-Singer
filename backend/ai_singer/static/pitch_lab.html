@@ -92,6 +92,7 @@ audio{width:100%;margin-top:10px}
 <div id="annList" class="annotation-list"></div>
 <div class="row annotation-actions">
 <button type="button" id="annScore" disabled>Score against labels</button>
+<button type="button" id="annSaveScores" class="secondary" disabled>Save accuracy report JSON</button>
 <button type="button" id="annExport" class="secondary" disabled>Save reference JSON</button>
 <label>Load reference JSON<input id="annImport" type="file" accept=".json,application/json"></label>
 <button type="button" id="annClear" class="secondary" disabled>Clear labels</button>
@@ -259,8 +260,8 @@ audio{width:100%;margin-top:10px}
   const annMidi = id("annMidi"), annDirection = id("annDirection"), annNoteField = id("annNoteField"), annDirectionField = id("annDirectionField");
   const annAdd = id("annAdd"), annCancel = id("annCancel"), annStartNow = id("annStartNow"), annEndNow = id("annEndNow");
   const annStatus = id("annStatus"), annList = id("annList"), annScore = id("annScore"), annScores = id("annScores");
-  const annExport = id("annExport"), annImport = id("annImport"), annClear = id("annClear");
-  let manualLabels = [], editingIndex = null;
+  const annExport = id("annExport"), annImport = id("annImport"), annClear = id("annClear"), annSaveScores = id("annSaveScores");
+  let manualLabels = [], editingIndex = null, latestScores = null, annotationRevision = 0;
   const timeText = n => Number(n).toFixed(2) + "s";
   function labelName(item) {
     if (item.kind === "note") return "Held MIDI " + item.midi_note;
@@ -325,7 +326,7 @@ audio{width:100%;margin-top:10px}
     });
     annScore.disabled=!data || !manualLabels.some(item=>item.kind!=="glide");
     annExport.disabled=manualLabels.length===0;annClear.disabled=manualLabels.length===0;
-    annScores.replaceChildren();
+    annScores.replaceChildren();latestScores=null;annSaveScores.disabled=true;annotationRevision++;
     annotationNotice(manualLabels.length+" manual interval(s). Save your reference before changing recordings.");
     if(data)draw();
   }
@@ -348,9 +349,9 @@ audio{width:100%;margin-top:10px}
   function resetManual() {
     manualLabels=[];resetEdit();annotationPanel.classList.toggle("hidden",!data);renderLabels();
   }
-  function exportJson(reference) {
+  function exportJson(reference, filename="ai-singer-manual-reference.json") {
     const url=URL.createObjectURL(new Blob([JSON.stringify(reference,null,2)],{type:"application/json"}));
-    const link=document.createElement("a");link.href=url;link.download="ai-singer-manual-reference.json";link.click();
+    const link=document.createElement("a");link.href=url;link.download=filename;link.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
   annKind.addEventListener("change",kindFields);
@@ -360,11 +361,13 @@ audio{width:100%;margin-top:10px}
   annEndNow.addEventListener("click",()=>{if(Number.isFinite(player.currentTime))annEnd.value=player.currentTime.toFixed(2);});
   annClear.addEventListener("click",resetManual);
   annExport.addEventListener("click",()=>{if(manualLabels.length)exportJson(annotationReference());});
+  annSaveScores.addEventListener("click",()=>{if(latestScores)exportJson({reference:annotationReference(),evaluation:latestScores},"ai-singer-manual-scores.json");});
   annImport.addEventListener("change",async()=>{
     const sourceFile=annImport.files?.[0];if(!sourceFile||!data)return;
     try {
       if(sourceFile.size>65536)throw Error("Reference JSON is too large.");
-      const source=JSON.parse(await sourceFile.text());
+      const loaded=JSON.parse(await sourceFile.text());
+      const source=loaded.reference || loaded;
       if(!Array.isArray(source.segments)||!Array.isArray(source.glides||[]))throw Error("Invalid reference JSON.");
       const next=[...source.segments.map(x=>({kind:x.midi_note===null?"rest":"note",start_seconds:x.start_seconds,end_seconds:x.end_seconds,midi_note:x.midi_note})),
         ...(source.glides||[]).map(x=>({kind:"glide",start_seconds:x.start_seconds,end_seconds:x.end_seconds,direction:x.direction}))];
@@ -380,12 +383,14 @@ audio{width:100%;margin-top:10px}
       validLabels(manualLabels);
       const reference=annotationReference();
       if(!reference.segments.length)throw Error("Add at least one held-note or rest interval to score.");
-      annScore.disabled=true;annotationNotice("Scoring against manually entered intervals…");
+      annScore.disabled=true;const requestRevision=annotationRevision;
+      annotationNotice("Scoring against manually entered intervals…");
       const response=await fetch("/score-reference",{
         method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({analysis:data,reference})
       });
       const result=await response.json();
       if(!response.ok)throw Error(typeof result.detail==="string"?result.detail:"Scoring failed (HTTP "+response.status+").");
+      if(annotationRevision!==requestRevision)throw Error("Labels changed during scoring; run the score again.");
       annScores.replaceChildren();
       for(const [model,score] of Object.entries(result.scores)) {
         const card=document.createElement("div");card.className="score-item";
@@ -401,6 +406,7 @@ audio{width:100%;margin-top:10px}
         glide.textContent="Glide direction reviews: "+(reviews || "No glides labeled");
         card.append(heading,pitch,glide);annScores.append(card);
       }
+      latestScores=result;annSaveScores.disabled=false;
       annotationNotice("Scored against manual labels, not independently verified ground truth.");
     }catch(error){annotationNotice(String(error.message||error),true);}
     finally{annScore.disabled=false;}
