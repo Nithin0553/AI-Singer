@@ -222,3 +222,9 @@ Start the existing server, then open <http://127.0.0.1:8000/voice-lab> (also lin
 **Before a real conversion:** Read [the separate RVC/authorized voice setup guide](docs/voice-render.md) and use backend/examples/voice-profiles.example.json as a disabled-by-default manifest template. Configure the independent RVC CLI Python runtime with AI_SINGER_RVC_ROOT and AI_SINGER_RVC_PYTHON; keep checkpoints under AI_SINGER_STORAGE_ROOT/models/voice_conversion. No training data, third-party weights, or preapproved male/female voices are included. Never enable a checkpoint without confirming permissions and provenance.
 
 **Verification boundary:** The rendering API, permission checks, temporary-file cleanup, subprocess and WAV handling were tested locally using a *fake RVC executable that copies a WAV*. No genuine model inference or rendered target singing voice has been verified on the user's Windows laptop yet. Routine pitch calibration is no longer a prerequisite; focus next on obtaining a real authorized voice model and listening to the resulting audio.
+
+### First noncommercial demo voice — Shadowww T02
+
+We've selected [Shadowww T02](https://huggingface.co/ShadowSH2306/shadowww-voices) as an **explicitly noncommercial RVC v2 prototype voice** (publisher terms: CC BY-NC 4.0, attribution required). It is a low/natural voice, not a Shreya imitation and not a licensed commercial-release voice.
+
+A safe, optional, checksum-verifying installation command is documented in [Voice Lab model setup](docs/voice-render.md#first-noncommercial-demo-model-shadowww-t02). It installs `shadowww-t02.pth` and the `voices.json` profile under the existing external drive, only if you accept the noncommercial license. It leaves your models and earlier source recordings alone and installs **no RVC runtime**. Full conversion still awaits a compatible third-party RVC environment and a real inference test.

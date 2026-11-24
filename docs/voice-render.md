@@ -42,3 +42,34 @@ The adapter calls the upstream offline RVC CLI with `--pitch 0`, `--f0-method rm
 The tests cover consent, manifest security, temporary-file cleanup, input limits, errors and audio I/O using a **fake RVC script that copies a WAV**, not a trained voice model. Actual RVC inference, singing quality, latency and laptop compatibility are **pending a rights-cleared model and configured runtime**. Do not confuse successful mock tests with genuine neural singing.
 
 HTTP errors: 403 for missing use confirmation, 422 for invalid audio, 429 when a render is in progress, 503 for missing profile/runtime, and 502 for converter or output failure. If conversion fails, inspect the real RVC CLI's local logs; the API does not reveal private paths or third-party error traces.
+
+## First noncommercial demo model: Shadowww T02
+
+The first selected model is **Shadowww T02** from [ShadowSH2306/shadowww-voices](https://huggingface.co/ShadowSH2306/shadowww-voices). The publisher states the source vocals were self-recorded and publishes the RVC v2, 48-kHz model under **CC BY-NC 4.0**. You may experiment noncommercially with attribution, but **cannot use this checkpoint in a commercial product without additional permission**. Label generated vocals as AI; do not claim the publisher performed your recording or impersonate the voice. The publisher also credits **KLM 4.1 by SeungHyun Han (Seoul Streaming Station)** as the pretrained base; its additional terms should be checked before any product release.
+
+The setup command downloads **the individual `shadowww-t02.pth` only** (~57.5 MB), not a ZIP or the retrieval index (our first adapter uses `--index-rate 0`). It pins the model's published SHA-256: `7166e6cc680178a1273929ebe00daedab1f8db8039bec312c96a23093ef2ac20` ([publisher checksum list](https://huggingface.co/ShadowSH2306/shadowww-voices/blob/main/SHA256SUMS)). Model weights are never checked into Git or automatically loaded during installation.
+
+From a **new PowerShell terminal** on the user's Windows laptop:
+
+```powershell
+cd C:\Users\nithi\AI-Singer
+git pull --ff-only
+
+.\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu'
+cd backend
+
+# Run without --accept-noncommercial-license to see the terms error instead
+# of downloading. Passing it is an affirmative acceptance for research/demo use.
+.\.venv\Scripts\python -m ai_singer.install_licensed_voice --install --accept-noncommercial-license
+
+# Confirm checkpoint checksum and local voice registry without loading .pth
+.\.venv\Scripts\python -m ai_singer.install_licensed_voice --check
+
+# Confirm the profile is listed (RVC runtime is still needed for inference).
+.\.venv\Scripts\python -c "from ai_singer.voice_render import list_voices; print(list_voices())"
+```
+
+The installer uses only Python's standard library, streams from the known publisher's Hugging Face URL, limits the file to 80 MiB, checks SHA-256 **before** moving the checkpoint into the model directory, and preserves other voice entries in `voices.json`. Existing files with mismatching checksums are not overwritten; invalid manifests and symlink escapes are refused. It writes locally under `<AI_SINGER_STORAGE_ROOT>/models/voice_conversion/shadowww-t02/shadowww-t02.pth` and registers the profile with the published license, attribution and source. `--check` does not use the network.
+
+**Important:** This only prepares the approved demo checkpoint. `voice_lab_ready: true` means the **profile and model file** are configured, *not* that a separate RVC inference runtime, HuBERT, ContentVec and RMVPE files are installed or tested. Set up the RVC CLI using the instructions above, and verify its `infer/cli.py --help` arguments before launching Voice Lab. RVC `.pth` loading may execute unsafe serialized code; checksum verification does **not** make external model execution safe. Keep this model restricted to a noncommercial, credited and clearly AI-labeled local prototype.
+
