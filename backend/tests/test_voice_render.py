@@ -246,3 +246,30 @@ def test_rvc_infer_package_import_with_dedicated_python(installed, monkeypatch, 
     )
     assert response.status_code == 200, response.text
     assert response.content[:4] == b"RIFF"
+
+
+def test_rvc_unicode_status_does_not_fail_under_cp1252_parent(installed, monkeypatch):
+    """Legacy Windows console encoding must not break localized RVC output."""
+    _, _, _, runtime = installed
+    script = runtime / "infer" / "cli.py"
+    original = script.read_text(encoding="utf-8")
+    script.write_text(
+        "import sys\n"
+        "assert sys.stdout.encoding.lower().replace('-', '') == 'utf8'\n"
+        "assert sys.stderr.encoding.lower().replace('-', '') == 'utf8'\n"
+        "print('【Current device: cuda:0】')\n"
+        "print('【选择模型】', file=sys.stderr)\n"
+        + original,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    response = TestClient(app).post(
+        "/render-voice",
+        data={"voice_id": "my-voice", "authorized_use": "true"},
+        files={"file": ("vocal.wav", sample_wav(), "audio/wav")},
+    )
+    assert response.status_code == 200, response.text
+    assert response.content[:4] == b"RIFF"
+    assert os.environ["PYTHONIOENCODING"] == "cp1252"
+    assert os.environ["PYTHONUTF8"] == "0"

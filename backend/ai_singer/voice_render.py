@@ -221,6 +221,11 @@ def render_voice(recording: bytes, voice_id: str, *, authorized_use: bool) -> by
             env["HF_HUB_OFFLINE"] = "1"
             env["TRANSFORMERS_OFFLINE"] = "1"
             env["PYTHONNOUSERSITE"] = "1"
+            # RVC prints non-ASCII localized status text. Legacy Windows
+            # pipe encodings (e.g. cp1252) cannot print those characters.
+            # Override only the child, not the parent process or console.
+            env["PYTHONIOENCODING"] = "utf-8"
+            env["PYTHONUTF8"] = "1"
             try:
                 task = subprocess.run(cmd, cwd=root, env=env,
                                       capture_output=True, timeout=RENDER_TIMEOUT_SECONDS,

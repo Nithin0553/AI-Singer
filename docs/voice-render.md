@@ -182,3 +182,14 @@ $py = '.\.venv\Scripts\python.exe'
 ~~~
 
 **Windows acceptance:** Stop Uvicorn, pull AI Singer `main`, run `backend\.venv\Scripts\python -m pytest -q tests/test_voice_render.py`, restore the three `AI_SINGER_...` RVC/storage environment variables and start Uvicorn in that shell. If a *different* inference error occurs, keep `AI_SINGER_RVC_DEBUG=1` temporarily to see the bounded child subprocess traceback. No successful neural conversion has yet been confirmed after this import-path fix.
+
+### Fix for Unicode encoding errors in the RVC child on Windows
+
+**Observed on Windows (2026-11-26):** After fixing the RVC module import, a real render reached CUDA device cuda:0, selected shadowww-t02.pth, speaker 0 and no index. It then failed with `rvc-cli: error: 'charmap' codec can't encode character '\u3010' in position 0`. U+3010 is `【`, a localized status character. The separate `TRANSFORMERS_CACHE` FutureWarning is nonfatal.
+
+**Cause and code fix:** RVC prints localized Unicode messages through its captured subprocess pipes. The child Python process may use Windows' legacy encoding (e.g. cp1252), which cannot print U+3010. AI Singer now sets `PYTHONIOENCODING=utf-8` and `PYTHONUTF8=1` **only in the RVC child environment**. This does not change the system's code page, parent PowerShell window, or other Python packages and environments.
+
+**Regression:** A test sets the parent to `PYTHONIOENCODING=cp1252` and `PYTHONUTF8=0`; the mock RVC child prints localized Unicode on both stdout and stderr and still produces a WAV with its stdout/stderr encoding verified as UTF-8. The parent environment stays unchanged. An isolated actual Python subprocess reproduction confirmed the charmap failure under cp1252 and success under UTF-8.
+
+**Retry:** Stop the old Uvicorn, pull `main`, run `backend/.venv/Scripts/python -m pytest -q tests/test_voice_render.py` and restart with `AI_SINGER_STORAGE_ROOT`, `AI_SINGER_RVC_ROOT`, `AI_SINGER_RVC_PYTHON` configured. Temporarily set `AI_SINGER_RVC_DEBUG=1` to see any *new* subprocess errors locally. Retry the noncommercial credited Shadowww T02 render. Do not reinstall CUDA or voice weights. Actual neural WAV production has not yet been verified.
+
