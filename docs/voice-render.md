@@ -135,3 +135,32 @@ cd C:\Users\nithi\AI-Singer\backend
 ~~~
 
 Then open http://127.0.0.1:8000/voice-lab and try a permitted original vocal with Shadowww T02. On the first run, a 4-GiB GPU may encounter memory constraints; voice quality and compatibility remain unverified until a real output is rendered and listened to. The local model checker will continue to say not_checked for the RVC runtime even after the runtime is installed because it intentionally only checks the voice checkpoint and manifest.
+
+## Troubleshooting the first RVC HTTP 502
+
+If GET /voice-lab and GET /voices succeed but POST /render-voice returns HTTP 502, the child RVC process may have exited without producing a WAV. The browser intentionally hides its third-party output; the root cause is **not** identified by the 502 alone.
+
+First check the checkpoint metadata without a vocal recording:
+
+~~~powershell
+cd D:\AI_Singer\runtime\rvc
+$py = 'D:\AI_Singer\runtime\rvc\.venv\Scripts\python.exe'
+& $py .\infer\cli.py --model 'D:\AI_Singer\models\voice_conversion\shadowww-t02\shadowww-t02.pth' --list-speakers
+~~~
+
+If this command fails, the displayed exception is the first issue to resolve. It exercises model checkpoint loading but **not** actual conversion. Do not blindly alter PyTorch weights-only deserialization or install unrelated models based only on HTTP 502.
+
+For a failure occurring after metadata loading, use opt-in local RVC error reporting. Stop the current Uvicorn server using Ctrl+C, then in the same PowerShell window:
+
+~~~powershell
+$env:AI_SINGER_STORAGE_ROOT = 'D:\AI_Singer'
+$env:AI_SINGER_RVC_ROOT = 'D:\AI_Singer\runtime\rvc'
+$env:AI_SINGER_RVC_PYTHON = 'D:\AI_Singer\runtime\rvc\.venv\Scripts\python.exe'
+$env:AI_SINGER_RVC_DEBUG = '1'
+cd C:\Users\nithi\AI-Singer\backend
+.\.venv\Scripts\python -m uvicorn ai_singer.main:app --reload
+~~~
+
+After retrying a permitted original vocal in Voice Lab, the local terminal logs the RVC exit code and up to the last 2,500 characters of each captured stdout/stderr stream. These details are **never included in HTTP responses or persisted to a log file by AI Singer**. RVC may print private paths or details: redact sensitive content before posting terminal output. Disable verbose logging later by stopping the server, running Remove-Item Env:\AI_SINGER_RVC_DEBUG -ErrorAction SilentlyContinue, and restarting.
+
+Possible failures include checkpoint format/serialization, unsupported packages, a missing runtime component or CUDA out-of-memory on the 4-GiB GPU. None should be presumed until the concrete CLI error is obtained.

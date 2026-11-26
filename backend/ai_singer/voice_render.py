@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -28,6 +29,27 @@ MAX_MANIFEST_BYTES = 64 * 1024
 MAX_OUTPUT_BYTES = 25 * 1024 * 1024
 RENDER_TIMEOUT_SECONDS = 240
 _RENDER_LOCK = threading.Lock()
+LOGGER = logging.getLogger(__name__)
+RVC_DEBUG_ENV = "AI_SINGER_RVC_DEBUG"
+
+
+def _diagnostic_excerpt(output: bytes) -> str:
+    """Bound local-only RVC output while preserving traceback endings."""
+    return output[-8192:].decode("utf-8", errors="replace")[-2500:]
+
+
+def _record_rvc_failure(task: subprocess.CompletedProcess) -> None:
+    """Keep third-party diagnostic output out of HTTP responses."""
+    LOGGER.warning(
+        "RVC exited with code %s. Set %s=1 before starting Uvicorn for local diagnostics.",
+        task.returncode, RVC_DEBUG_ENV,
+    )
+    if os.environ.get(RVC_DEBUG_ENV) == "1":
+        for stream_name, data in (("stdout", task.stdout), ("stderr", task.stderr)):
+            if data:
+                LOGGER.error("RVC %s tail (local console only): %r",
+                             stream_name, _diagnostic_excerpt(data))
+
 
 
 class VoiceConfigurationError(RuntimeError):
@@ -205,7 +227,8 @@ def render_voice(recording: bytes, voice_id: str, *, authorized_use: bool) -> by
             except OSError as exc:
                 raise VoiceConfigurationError("Unable to start the configured RVC Python executable.") from exc
             if task.returncode != 0:
-                # Third-party logs may contain local paths/private data; don't expose them to the browser.
+                _record_rvc_failure(task)
+                # Third-party logs can contain private data: HTTP stays generic.
                 raise VoiceRenderError("RVC conversion failed. Inspect your local RVC installation and model compatibility.")
             if not output.is_file() or not 44 <= output.stat().st_size <= MAX_OUTPUT_BYTES:
                 raise VoiceRenderError("RVC did not produce a valid-size WAV preview.")

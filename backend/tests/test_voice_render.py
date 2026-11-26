@@ -1,5 +1,6 @@
 """Offline voice-output contract tests; no third-party RVC model is loaded."""
 import json
+import logging
 import os
 from pathlib import Path
 import sys
@@ -182,3 +183,47 @@ def test_voice_lab_contains_controls_and_local_fetch_only():
                  'id="original"','id="converted"','"/voices"','"/render-voice"']:
         assert term in response.text
     assert 'src="http' not in response.text
+
+def test_renderer_local_diagnostics_require_explicit_opt_in(installed, monkeypatch, caplog):
+    _, _, _, runtime = installed
+    (runtime / "infer" / "cli.py").write_text(
+        "import sys\nprint('secret trace on stdout')\n"
+        "print('example inference error', file=sys.stderr)\nsys.exit(7)\n"
+    )
+    client = TestClient(app)
+
+    def submit():
+        return client.post("/render-voice",
+                           data={"voice_id": "my-voice", "authorized_use": "true"},
+                           files={"file": ("vocal.wav", sample_wav(), "audio/wav")})
+
+    monkeypatch.delenv("AI_SINGER_RVC_DEBUG", raising=False)
+    with caplog.at_level(logging.WARNING, logger="ai_singer.voice_render"):
+        first = submit()
+    assert first.status_code == 502
+    assert "secret trace" not in first.text
+    assert "example inference error" not in first.text
+    assert "code 7" in caplog.text
+    assert "secret trace" not in caplog.text
+    assert "example inference error" not in caplog.text
+
+    caplog.clear()
+    monkeypatch.setenv("AI_SINGER_RVC_DEBUG", "1")
+    with caplog.at_level(logging.WARNING, logger="ai_singer.voice_render"):
+        second = submit()
+    assert second.status_code == 502
+    assert "secret trace" not in second.text
+    assert "example inference error" not in second.text
+    assert "code 7" in caplog.text
+    assert "secret trace on stdout" in caplog.text
+    assert "example inference error" in caplog.text
+
+
+def test_diagnostic_excerpt_bounds_output_and_handles_bad_bytes():
+    from ai_singer.voice_render import _diagnostic_excerpt
+    ending = b"very last error"
+    blob = b"Z" * 10000 + bytes([255]) + ending
+    excerpt = _diagnostic_excerpt(blob)
+    assert excerpt.endswith("very last error")
+    assert len(excerpt) <= 2500
+    assert "\ufffd" in excerpt
