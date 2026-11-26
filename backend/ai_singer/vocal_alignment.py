@@ -19,14 +19,16 @@ def _features(analysis):
     if not len(times):
         raise ValueError("Empty pitch track.")
     voiced = np.isfinite(midi)
-    quiet = (~voiced) & (rms < max(.002, float(rms.max()) * .06))
-    # Bridge at most two unvoiced frames between quiet frames; never trim voiced
-    # frames or nonquiet material at the edge of a phrase.
-    for i in range(1, len(quiet) - 2):
+    threshold = max(.002, float(rms.max()) * .06)
+    quiet = (~voiced) & (rms < threshold)
+    # Bridge at most two low-energy unvoiced frames between quiet frames.
+    # Preserve voiced and higher-energy unvoiced material.
+    for i in range(1, len(quiet) - 1):
         if quiet[i - 1] and not voiced[i]:
             for gap in (1, 2):
                 if (i + gap < len(quiet) and quiet[i + gap]
-                        and not voiced[i:i + gap].any()):
+                        and not voiced[i:i + gap].any()
+                        and (rms[i:i + gap] < 2 * threshold).all()):
                     quiet[i:i + gap] = True
                     break
     active = np.flatnonzero(~quiet)
@@ -39,12 +41,13 @@ def _features(analysis):
     center = float(np.median(pitch[mask])) if mask.any() else None
     if center is None:
         return None
+    active_end = min(duration, float(times[hi + 1])) if hi + 1 < len(times) else duration
     return {
         "times": times[idx], "pitch": pitch, "relative": pitch - center,
         "voiced": mask, "center": center,
         "leading_quiet_seconds": round(float(times[lo]), 3),
-        "trailing_quiet_seconds": round(max(0., duration - float(times[hi])), 3),
-        "active_duration_seconds": round(float(times[hi] - times[lo]), 3),
+        "trailing_quiet_seconds": round(max(0., duration - active_end), 3),
+        "active_duration_seconds": round(active_end - float(times[lo]), 3),
     }
 
 
@@ -187,7 +190,7 @@ def align_performances(target, demo):
     common = a["voiced"] & b["voiced"]
     baseline = np.abs(a["relative"][common] - b["relative"][common])
     gaps = sum(i is None or j is None for i, j in path)
-    mismatch = sum(i is not None and j is not None and a["voiced"][i] != b["voiced"][j]
+    mismatch = sum(bool(i is not None and j is not None and a["voiced"][i] != b["voiced"][j])
                    for i, j in path)
     matched = len(residuals)
     coverage = min(matched / int(a["voiced"].sum()), matched / int(b["voiced"].sum()))
