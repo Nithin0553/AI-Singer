@@ -319,3 +319,37 @@ def test_passage_edit_cap_and_atomic_rollback(setup, monkeypatch):
     after = client.get(f"/director/sessions/{sid}").json()
     assert before == after
     assert len(list((root / "outputs" / "director_sessions" / sid).glob("take_*.wav"))) == 1
+
+
+def test_readonly_audible_passage_hint_and_invalid_take(setup):
+    root, client = setup
+    session = save(client).json()
+    sid = session["id"]
+    tid = session["takes"][0]["id"]
+    endpoint = f"/director/sessions/{sid}/takes/{tid}/audible-passage"
+    before = client.get(f"/director/sessions/{sid}").json()
+    result = client.get(endpoint)
+    assert result.status_code == 200, result.text
+    hint = result.json()
+    assert hint["start_seconds"] == 0
+    assert hint["end_seconds"] == 2.0
+    assert hint["method"] == "highest_rms_2s_window"
+    assert client.get(f"/director/sessions/{sid}").json() == before
+    missing = client.get(f"/director/sessions/{sid}/takes/{'f'*32}/audible-passage")
+    assert missing.status_code == 404
+
+
+def test_edited_take_records_measured_change_and_audibility(setup):
+    _, client = setup
+    session = save(client).json()
+    sid, tid = session["id"], session["takes"][0]["id"]
+    r = client.post(f"/director/sessions/{sid}/edit", json={
+        "take_id": tid, "start_seconds": 0.5, "end_seconds": 1.5,
+        "operation": "gain", "value": 6
+    })
+    assert r.status_code == 201, r.text
+    edit = r.json()["takes"][-1]["edit"]
+    assert edit["changed_samples_percent"] > 80
+    assert edit["edited_rms_dbfs"] > edit["source_rms_dbfs"]
+    assert edit["strongest_region"]["rms_dbfs"] > -20
+    assert edit["quiet_region_warning"] is None

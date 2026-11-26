@@ -9,8 +9,8 @@ from fastapi.responses import FileResponse, Response
 
 from ai_singer.director_sessions import (
     DirectorInputError, DirectorLimitError, add_feedback, approve_take,
-    create_session, edit_take, get_session, list_sessions, original_audio,
-    render_next_take, take_audio,
+    audible_passage_hint, create_session, edit_take, get_session, list_sessions,
+    original_audio, render_next_take, take_audio,
 )
 from ai_singer.passage_edits import PassageEditError
 from ai_singer.audio_analysis import (
@@ -276,4 +276,17 @@ def director_edit(session_id: str, payload: dict = Body(...)) -> dict:
     except DirectorLimitError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (DirectorInputError, PassageEditError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/director/sessions/{session_id}/takes/{take_id}/audible-passage")
+def director_audible_passage(session_id: str, take_id: str) -> dict:
+    """Recommend a non-silent region for audition; not a singing classifier."""
+    try:
+        return audible_passage_hint(session_id, take_id)
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PassageEditError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

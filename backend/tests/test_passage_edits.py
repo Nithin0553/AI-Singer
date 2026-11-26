@@ -90,3 +90,58 @@ def test_input_bytes_immutable_and_repeatable():
                              operation="gain", value=4)
     assert next_ == another and next_ != raw
     assert raw[:4] == b"RIFF"
+
+
+def test_suggest_audible_passage_chooses_the_stronger_vocal_region():
+    sr = 16000
+    seconds = 12
+    frames = np.arange(sr * seconds, dtype=np.float64)
+    signal = 0.008 * np.sin(2 * np.pi * 220 * frames / sr)
+    signal[5 * sr:7 * sr] = 0.20 * np.sin(2 * np.pi * 220 * frames[5 * sr:7 * sr] / sr)
+    samples = np.rint(signal * 32767).astype("<i2")
+    output = BytesIO()
+    with wave.open(output, "wb") as wav:
+        wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+        wav.writeframes(samples.tobytes())
+    from ai_singer.passage_edits import suggest_audible_passage
+    suggestion = suggest_audible_passage(output.getvalue())
+    assert 4.75 <= suggestion["start_seconds"] <= 5.25
+    assert 6.75 <= suggestion["end_seconds"] <= 7.25
+    assert suggestion["rms_dbfs"] > -22
+    assert "not necessarily singing" in suggestion["note"]
+
+
+def test_quiet_first_second_still_reports_real_change_and_audibility_warning():
+    sr = 16000
+    frames = np.arange(sr * 12, dtype=np.float64)
+    sound = 0.012 * np.sin(2 * np.pi * 240 * frames / sr)
+    sound[5 * sr:7 * sr] = 0.25 * np.sin(2 * np.pi * 240 * frames[5 * sr:7 * sr] / sr)
+    with BytesIO() as b:
+        with wave.open(b, "wb") as wav:
+            wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+            wav.writeframes(np.rint(sound * 32767).astype("<i2").tobytes())
+        raw = b.getvalue()
+    changed, metadata = edit_passage(raw, start_seconds=0, end_seconds=1,
+                                     operation="gain", value=9)
+    assert changed != raw
+    assert metadata["changed_samples_percent"] > 80
+    assert metadata["source_rms_dbfs"] < -35
+    assert metadata["quiet_region_warning"] is not None
+    assert metadata["strongest_region"]["start_seconds"] >= 4.75
+    first, _ = pcm(raw)
+    second, _ = pcm(changed)
+    assert np.array_equal(first[sr:], second[sr:])
+
+
+def test_nearly_silent_selection_is_rejected_instead_of_making_a_fake_take():
+    sr = 16000
+    frames = np.arange(sr * 3) / sr
+    samples = (0.18 * np.sin(2 * np.pi * 220 * frames) * 32767).astype("<i2")
+    samples[:sr] = 0
+    b = BytesIO()
+    with wave.open(b, "wb") as wav:
+        wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(sr)
+        wav.writeframes(samples.tobytes())
+    with pytest.raises(PassageEditError, match="nearly silent"):
+        edit_passage(b.getvalue(), start_seconds=0, end_seconds=1,
+                     operation="pitch", value=1)

@@ -56,6 +56,24 @@ audio{display:block;width:100%;margin-top:8px}.take{border:1px solid #d7e2eb;pad
  </div>
 </section>
 
+<section class="panel hidden" id="editCompareSection">
+ <h2>Compare the corrected passage</h2>
+ <p id="editCompareDetails" class="small"></p>
+ <div class="columns">
+  <div><h3>Before: source take</h3><audio id="parentTakePlayer" controls preload="metadata"></audio></div>
+  <div><h3>After: selected candidate</h3>
+   <p class="small">Use the converted-take player above to hear the full candidate.</p>
+  </div>
+ </div>
+ <div class="row">
+  <button class="secondary" type="button" id="hearBefore">Play original passage</button>
+  <button class="secondary" type="button" id="hearAfter">Play corrected passage</button>
+  <button class="secondary" type="button" id="focusOnEdit">Use edited time range</button>
+ </div>
+ <p id="editLevelNotice" class="small"></p>
+ <p class="small">Both passage previews stop at the edit's end and use the same playback boost. The parent and saved candidate remain unchanged.</p>
+</section>
+
 <section class="panel">
  <h2>Take history</h2>
  <div id="takesList"></div>
@@ -73,7 +91,9 @@ audio{display:block;width:100%;margin-top:8px}.take{border:1px solid #d7e2eb;pad
  <div class="row">
   <button class="secondary" type="button" id="startAtPlayhead">Start at playhead</button>
   <button class="secondary" type="button" id="endAtPlayhead">End at playhead</button>
+  <button class="secondary" type="button" id="findAudible">Find an audible passage</button>
  </div>
+ <p id="audibleHint" class="small" role="status">Choose a take to find its strongest two-second section.</p>
  <label for="feedbackText">Correction instruction</label>
  <textarea id="feedbackText" maxlength="300" placeholder="Example: At 5–6 seconds, keep the rising glide smoother."></textarea>
  <button type="button" id="addFeedback">Save correction note</button>
@@ -126,7 +146,12 @@ const gainDb=get("gainDb"),gainText=get("gainText"),downloadTake=get("downloadTa
 const renderAgain=get("renderAgain"),renderVoice=get("renderVoice"),renderAuthorized=get("renderAuthorized");
 const editOperation=get("editOperation"),editValue=get("editValue"),editValueLabel=get("editValueLabel");
 const applyPassageEdit=get("applyPassageEdit"),editSourceTake=get("editSourceTake");
+const compareSection=get("editCompareSection"),parentTakePlayer=get("parentTakePlayer");
+const compareDetails=get("editCompareDetails"),levelNotice=get("editLevelNotice");
+const hearBefore=get("hearBefore"),hearAfter=get("hearAfter"),focusOnEdit=get("focusOnEdit");
+const findAudible=get("findAudible"),audibleHint=get("audibleHint");
 let current=null,selectedTakeId=null,busy=false,audioContext=null,gainNode=null;
+let audibleSuggestion=null,manualTimes=false,activeClip=null;
 const dir=id=>"/director/sessions/"+encodeURIComponent(id);
 const request=async (url,options)=>{
  const res=await fetch(url,options);
@@ -141,6 +166,10 @@ function message(msg,error=false){status.textContent=msg;status.classList.toggle
 function busyState(next){busy=next;approveTake.disabled=busy||!current||current.approved_take_id===selectedTakeId;
  addFeedback.disabled=busy||!selectedTakeId;
  applyPassageEdit.disabled=busy||!current||!selectedTakeId||current.takes.length>=12;
+ findAudible.disabled=busy||!selectedTakeId||!audibleSuggestion;
+ hearBefore.disabled=busy||compareSection.classList.contains("hidden");
+ hearAfter.disabled=busy||compareSection.classList.contains("hidden");
+ focusOnEdit.disabled=busy||compareSection.classList.contains("hidden");
  renderAgain.disabled=busy||!current||!renderAuthorized.checked||!renderVoice.value;
  refreshSessions.disabled=busy;sessionSelect.disabled=busy;}
 function printSeconds(n){return Number(n).toFixed(2)+"s";}
@@ -156,7 +185,11 @@ function drawTakeList(){
   const listen=document.createElement("button");listen.type="button";listen.className="secondary";
   listen.textContent=take.id===selectedTakeId?"Selected":"Select & listen";
   listen.disabled=busy;
-  listen.addEventListener("click",()=>{selectTake(take.id);takePlayer.play().catch(()=>{});});
+  listen.addEventListener("click",()=>{
+    selectTake(take.id);
+    if(take.edit)playPassage(takePlayer,take.edit.start_seconds,take.edit.end_seconds);
+    else takePlayer.play().catch(()=>{});
+  });
   if(take.edit){
    const detail=document.createElement("span");detail.className="small";
    detail.textContent=" · Passage "+take.edit.start_seconds.toFixed(2)+"–"+take.edit.end_seconds.toFixed(2)+"s";
@@ -176,33 +209,118 @@ function drawFeedback(){
   seek.addEventListener("click",()=>{takePlayer.currentTime=note.start_seconds;takePlayer.play().catch(()=>{});});
   const use=document.createElement("button");use.type="button";use.className="secondary";use.textContent="Use this interval";
   use.addEventListener("click",()=>{
-   feedbackStart.value=String(note.start_seconds);
-   feedbackEnd.value=String(note.end_seconds);
+   copyTimes(note.start_seconds,note.end_seconds);
    message("Time range selected. Choose a supported numeric edit; the note itself is not interpreted by AI.");
   });
   row.append(text," ",seek," ",use);feedbackList.append(row);
  }
 }
+
+function stopClips(){
+ takePlayer.pause();parentTakePlayer.pause();activeClip=null;
+}
+function playPassage(player,start,end){
+ if(!(Number.isFinite(start)&&Number.isFinite(end)&&end>start))return;
+ stopClips();
+ activeClip={player,end};
+ const playFromStart=()=>{
+  if(!activeClip||activeClip.player!==player)return;
+  try{
+   player.currentTime=Math.max(0,start);
+   const p=player.play();
+   if(p&&typeof p.catch==="function")p.catch(()=>message("Press Play on the audio player to hear this passage.",true));
+  }catch{message("The selected passage could not be played.",true);}
+ };
+ if(player.readyState>=1)playFromStart();
+ else player.addEventListener("loadedmetadata",playFromStart,{once:true});
+}
+for(const player of [takePlayer,parentTakePlayer]){
+ player.addEventListener("timeupdate",()=>{
+  if(activeClip&&activeClip.player===player&&player.currentTime>=activeClip.end){
+   player.pause();activeClip=null;
+  }
+ });
+}
+takePlayer.addEventListener("play",()=>{if(!parentTakePlayer.paused)parentTakePlayer.pause();});
+parentTakePlayer.addEventListener("play",()=>{if(!takePlayer.paused)takePlayer.pause();});
+function copyTimes(start,end){feedbackStart.value=Number(start).toFixed(2);feedbackEnd.value=Number(end).toFixed(2);manualTimes=true;}
+async function loadAudibleHint(sessionId,takeId,autoFill=false){
+ audibleSuggestion=null;
+ audibleHint.textContent="Finding the strongest part of this take…";
+ busyState(busy);
+ try{
+  const hint=await request(dir(sessionId)+"/takes/"+encodeURIComponent(takeId)+"/audible-passage");
+  if(!current||current.id!==sessionId||selectedTakeId!==takeId)return;
+  audibleSuggestion=hint;
+  audibleHint.textContent="Strongest measured 2-second passage: "+printSeconds(hint.start_seconds)+"–"+printSeconds(hint.end_seconds)+
+   " ("+hint.rms_dbfs+" dBFS). This is a loudness estimate, not guaranteed singing.";
+  if(autoFill&&!manualTimes)copyTimes(hint.start_seconds,hint.end_seconds);
+ }catch(e){
+  if(current&&current.id===sessionId&&selectedTakeId===takeId)audibleHint.textContent="Cannot find an audible passage: "+String(e.message||e);
+ }finally{busyState(busy);}
+}
+findAudible.addEventListener("click",()=>{
+ if(audibleSuggestion)copyTimes(audibleSuggestion.start_seconds,audibleSuggestion.end_seconds);
+ message("Selected the loudest measured passage. Listen to confirm it contains the singing you want to change.");
+});
+function selectedEdit(){
+ const take=current?.takes.find(t=>t.id===selectedTakeId);
+ return take?.edit&&take.source_take_id?take:null;
+}
+hearBefore.addEventListener("click",()=>{
+ const take=selectedEdit();if(take)playPassage(parentTakePlayer,take.edit.start_seconds,take.edit.end_seconds);
+});
+hearAfter.addEventListener("click",()=>{
+ const take=selectedEdit();if(take)playPassage(takePlayer,take.edit.start_seconds,take.edit.end_seconds);
+});
+focusOnEdit.addEventListener("click",()=>{
+ const take=selectedEdit();
+ if(take)copyTimes(take.edit.start_seconds,take.edit.end_seconds);
+});
+feedbackStart.addEventListener("input",()=>{manualTimes=true;});
+feedbackEnd.addEventListener("input",()=>{manualTimes=true;});
+
 function selectTake(takeId){
  if(!current||!current.takes.some(t=>t.id===takeId))return;
+ stopClips();
  selectedTakeId=takeId;
+ const selected=current.takes.find(t=>t.id===takeId);
  takePlayer.src=dir(current.id)+"/takes/"+encodeURIComponent(takeId)+".wav";
- selectedHeading.textContent="Selected: "+current.takes.find(t=>t.id===takeId).label;
- editSourceTake.textContent=current.takes.find(t=>t.id===takeId).label;
+ selectedHeading.textContent="Selected: "+selected.label;
+ editSourceTake.textContent=selected.label;
  downloadTake.href=takePlayer.src;
  downloadTake.download="ai-singer-"+takeId.slice(0,8)+".wav";
+ if(selected.edit&&selected.source_take_id){
+  compareSection.classList.remove("hidden");
+  parentTakePlayer.src=dir(current.id)+"/takes/"+encodeURIComponent(selected.source_take_id)+".wav";
+  compareDetails.textContent=selected.label+": "+printSeconds(selected.edit.start_seconds)+"–"+
+   printSeconds(selected.edit.end_seconds)+". Preview just this region using the buttons.";
+  const metrics=selected.edit;
+  levelNotice.textContent=metrics.changed_samples_percent===undefined
+   ?"Existing edit: audio metrics were not recorded in this older take."
+   :"Changed "+metrics.changed_samples_percent+"% of samples inside the interval. Source level: "+
+     metrics.source_rms_dbfs+" dBFS; edited level: "+metrics.edited_rms_dbfs+" dBFS. "+
+     (metrics.quiet_region_warning||"");
+  copyTimes(selected.edit.start_seconds,selected.edit.end_seconds);
+ }else{
+  compareSection.classList.add("hidden");
+  parentTakePlayer.removeAttribute("src");
+  parentTakePlayer.load();
+ }
  drawTakeList();drawFeedback();busyState(busy);
+ loadAudibleHint(current.id,takeId,!selected.edit&&!manualTimes);
 }
 function renderSession(session,prefer){
+ const switching=current?.id!==session.id;
  current=session;workspace.classList.remove("hidden");
+ if(switching){manualTimes=false;feedbackStart.value="0";feedbackEnd.value=String(Math.min(1,session.duration_seconds));}
+ feedbackEnd.max=String(session.duration_seconds);feedbackStart.max=String(session.duration_seconds);
  sessionInfo.textContent="Created "+session.created_at+" · "+printSeconds(session.duration_seconds)+" · "+session.takes.length+" take(s)";
  originalPlayer.src=dir(session.id)+"/original";
  const chosen=prefer&&session.takes.some(t=>t.id===prefer)?prefer:
   (session.approved_take_id||session.takes[session.takes.length-1].id);
  selectTake(chosen);
- feedbackEnd.max=String(session.duration_seconds);feedbackStart.max=String(session.duration_seconds);
- feedbackEnd.value=String(Math.min(1,session.duration_seconds));
- message("Session loaded. Original and converted takes remain separate.");
+ message("Session loaded. Check the suggested audible passage, then compare any edit using Before/After playback.");
 }
 async function loadSession(id,preferred){
  if(!id){current=null;selectedTakeId=null;workspace.classList.add("hidden");return;}
@@ -240,8 +358,8 @@ approveTake.addEventListener("click",async()=>{
  }catch(e){message(String(e.message||e),true);}
  finally{busyState(false);}
 });
-get("startAtPlayhead").addEventListener("click",()=>{feedbackStart.value=takePlayer.currentTime.toFixed(2);});
-get("endAtPlayhead").addEventListener("click",()=>{feedbackEnd.value=takePlayer.currentTime.toFixed(2);});
+get("startAtPlayhead").addEventListener("click",()=>{feedbackStart.value=takePlayer.currentTime.toFixed(2);manualTimes=true;});
+get("endAtPlayhead").addEventListener("click",()=>{feedbackEnd.value=takePlayer.currentTime.toFixed(2);manualTimes=true;});
 addFeedback.addEventListener("click",async()=>{
  if(!current||busy||!selectedTakeId)return;
  const start=Number(feedbackStart.value),end=Number(feedbackEnd.value);
@@ -285,7 +403,10 @@ applyPassageEdit.addEventListener("click",async()=>{
   });
   renderSession(result,result.takes[result.takes.length-1].id);
   feedbackStart.value=String(from);feedbackEnd.value=String(to);
-  message("Edited candidate saved. Listen and approve only if the change sounds right.");
+  const summary=result.takes[result.takes.length-1].edit;
+  message("Candidate saved: "+summary.changed_samples_percent+"% of samples in "+
+   printSeconds(summary.start_seconds)+"–"+printSeconds(summary.end_seconds)+
+   " changed. "+(summary.quiet_region_warning||"Use the Before/After buttons to hear only this passage."));
  }catch(e){message(String(e.message||e),true);}
  finally{busyState(false);}
 });
@@ -311,6 +432,7 @@ gainDb.addEventListener("input",()=>{
    audioContext=new AudioEngine();
    gainNode=audioContext.createGain();
    audioContext.createMediaElementSource(takePlayer).connect(gainNode);
+   audioContext.createMediaElementSource(parentTakePlayer).connect(gainNode);
    gainNode.connect(audioContext.destination);
   }
   audioContext.resume();

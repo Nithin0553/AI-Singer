@@ -59,3 +59,21 @@ cd backend
 Existing working RVC integration remains unaffected. If Windows tests or a UI action fail, share the exact error and address that regression before expanding the editing engine.
 
 **Later milestones:** note-/phoneme-aware expressive retakes; Telugu/English instruction classification with supported vs unsupported actions; true segment-focused neural regeneration and formant-aware alignment; explicit review before approval. This milestone deliberately does not claim those capabilities.
+
+## Audible-change review and initial-range fix (2026-11-26)
+
+**User report:** The edit buttons created takes but the result sounded unchanged. The screenshot of Take 1–5 shows all four pitch/gain corrections targeted **0.00–1.00 seconds**, because the first Director editor used those timestamps as its default and the audio player ordinarily played the entire roughly 12.46-second take. That is a UX failure, not evidence by itself that PCM editing failed.
+
+**Evidence from the actual first generated Shadowww T02 WAV (12.46 s / 48 kHz):** The 0–1 s section measures approximately **−37.1 dBFS RMS**, compared to **−27.8 dBFS** in the stronger 5–7 s region. A two-second peak-RMS search found **6.25–8.25 s** at approximately **−27.8 dBFS**. A +9 dB gain edit altered **98.6%** of samples within 0–1 s (raising measured RMS to approximately −28.5 dBFS), with untouched samples outside; the same +9 dB edit at 5–7 s altered **99.8%** of interval samples. This shows why short and relatively quiet default intervals can be hard to notice during full-length listening.
+
+**New protections and controls:**
+
+- On loading a session/base take, Director Mode asks the backend for a **read-only strongest two-second RMS window** and autofills that interval if the user has not explicitly set a range. **Find an audible passage** applies that suggestion on demand. This heuristic measures intensity, **not** singing/pitch/voicing; inspect and listen before editing because noise may be the loudest part.
+- After a passage edit, selecting its new take reveals **Compare the corrected passage** with its parent/source take, **Play original passage** and **Play corrected passage**. Both buttons seek to the *exact edited interval*, stop at its end, and use the same playback-gain setting. The parent take's WAV and approved status are never modified. Older saved edit takes can use comparison too; older edit records may not have quantitative metrics.
+- The saved edit recipe now includes `source_rms_dbfs`, `edited_rms_dbfs`, `changed_samples_percent`, `strongest_region`, and an optional `quiet_region_warning` (if the selected interval is ≥6 dB quieter than the strongest two-second window). These **describe measured signal changes, not proof of subjective improvement or that the pitch contour exactly follows the director's intent**.
+- A nearly silent interval (RMS below −60 dBFS) is rejected rather than consuming an immutable take slot on a likely imperceptible edit.
+- Session refresh/approval no longer force the time fields back to 0–1 s. Editing a take loads that take's actual edited interval for A/B playback; manually chosen ranges and saved-note shortcuts are respected.
+
+**Verification:** The UI script passed an interactive state/fetch simulation covering automatic strongest-region selection, a +3-semitone candidate POST, preserved approval, and both Before/After seek-play controls. Ad-hoc RMS calculations against the real 48-kHz first-preview WAV confirm the suggested 6.25–8.25 s interval and its energy. New DSP/API regression tests are included; Windows full-suite and real-browser playback acceptance are **not yet confirmed**.
+
+**How to verify on Windows:** Pull the newest GitHub `main`, stop/restart Uvicorn with the same working external-drive and RVC environment, run `python -m pytest -q tests/test_passage_edits.py tests/test_director_sessions.py`, refresh Director Mode and choose a base take (Take 1). The UI should populate a 2-second louder interval instead of 0–1 s. For this recording try 5.00–7.00 s or the suggested 6.25–8.25 s, choose **Pitch +3 semitones**, and click **Create candidate take**. Select the new take and compare **Play original passage** versus **Play corrected passage**. They should differ clearly when vocal material is present. Do not approve until you actually hear a better performance.

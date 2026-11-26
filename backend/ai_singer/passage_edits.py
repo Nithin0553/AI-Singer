@@ -63,6 +63,44 @@ def _write_wav(samples: np.ndarray, sr: int) -> bytes:
     return output.getvalue()
 
 
+
+def _dbfs(rms: float) -> float:
+    """Bound the floor for silent audio; this is a level, not a pitch score."""
+    return round(20.0 * math.log10(max(float(rms), 1e-8)), 1)
+
+
+def suggest_audible_passage(wav_bytes: bytes) -> dict:
+    """Find the loudest two-second area by RMS, without claiming it is voiced.
+
+    Uses prefix sums of squared PCM samples so 48-kHz/18-s recordings are
+    cheap to scan. Starts are on a 0.25-second grid and include the final
+    possible window; no source data or metadata is modified.
+    """
+    samples, sr = _read_wav(wav_bytes)
+    width = min(samples.size, int(round(sr * 2.0)))
+    step = max(1, round(sr * 0.25))
+    starts = np.arange(0, samples.size - width + 1, step, dtype=np.int64)
+    last = samples.size - width
+    if starts.size == 0 or starts[-1] != last:
+        starts = np.append(starts, last)
+    # Float64 accumulation prevents numerical overflow and long-track drift.
+    normalized = samples.astype(np.float64) / 32768.0
+    squares = np.square(normalized)
+    power = np.empty(squares.size + 1, dtype=np.float64)
+    power[0] = 0.0
+    np.cumsum(squares, out=power[1:])
+    rms_values = np.sqrt(np.maximum(0.0, (power[starts + width] - power[starts]) / width))
+    best = int(np.argmax(rms_values))
+    start = int(starts[best])
+    return {
+        "start_seconds": round(start / sr, 2),
+        "end_seconds": round((start + width) / sr, 2),
+        "rms_dbfs": _dbfs(float(rms_values[best])),
+        "method": "highest_rms_2s_window",
+        "note": "Loudness estimate only; may include noise, not necessarily singing.",
+    }
+
+
 def edit_passage(
     wav_bytes: bytes, *, start_seconds: float, end_seconds: float,
     operation: str, value: float,
@@ -126,10 +164,31 @@ def edit_passage(
     combined = src * (1.0 - weights) + modified * weights
     result = original.copy()
     result[lo:hi] = np.rint(np.clip(combined * 32768.0, -32768, 32767)).astype("<i2")
+    # Report what was actually changed. An HTTP 201/new take alone does not
+    # establish an *audible* change, especially if the selected range is quiet.
+    original_rms = float(np.sqrt(np.mean(np.square(src, dtype=np.float64))))
+    edited_rms = float(np.sqrt(np.mean(np.square(result[lo:hi].astype(np.float64) / 32768.0))))
+    loudest = suggest_audible_passage(wav_bytes)
+    changed_fraction = float(np.mean(result[lo:hi] != original[lo:hi]))
+    if original_rms < 1e-3:
+        raise PassageEditError(
+            "The selected interval is nearly silent. Choose a passage with audible singing."
+        )
+    original_level = _dbfs(original_rms)
+    warning = (
+        "This passage is much quieter than the strongest part of the take. "
+        "Try the suggested audible interval to hear a clearer change."
+        if loudest["rms_dbfs"] - original_level >= 6.0 else None
+    )
     detail = {
         "operation": operation, "value": round(amount, 3),
         "unit": "semitones" if operation == "pitch" else "dB",
         "start_seconds": round(start, 3), "end_seconds": round(end, 3),
         "fade_ms": int(round(CROSSFADE_SECONDS * 1000)),
+        "source_rms_dbfs": original_level,
+        "edited_rms_dbfs": _dbfs(edited_rms),
+        "changed_samples_percent": round(100.0 * changed_fraction, 1),
+        "quiet_region_warning": warning,
+        "strongest_region": loudest,
     }
     return _write_wav(result, sr), detail

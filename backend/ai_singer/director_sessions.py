@@ -20,7 +20,7 @@ from uuid import uuid4
 import wave
 
 from ai_singer.audio_analysis import decode_audio
-from ai_singer.passage_edits import PassageEditError, edit_passage
+from ai_singer.passage_edits import PassageEditError, edit_passage, suggest_audible_passage
 from ai_singer.storage import configured_storage_root
 from ai_singer.voice_render import MAX_OUTPUT_BYTES, _pcm_wav, _select_profile, render_voice
 
@@ -306,6 +306,13 @@ def render_next_take(session_id: str, voice_id: str, *, authorized: bool) -> dic
         finally:
             temporary.unlink(missing_ok=True)
         return current
+
+
+def audible_passage_hint(session_id: str, take_id: str) -> dict:
+    """Expose a read-only loudness-based interval suggestion for one saved take."""
+    with _LOCK:
+        path = take_audio(session_id, take_id)
+        return suggest_audible_passage(path.read_bytes())
 
 
 def edit_take(
