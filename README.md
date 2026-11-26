@@ -255,3 +255,8 @@ The director can now demonstrate the desired performance by singing or humming i
 Choose YIN or your configured RMVPE checkpoint, then **Analyze demonstration** for an ephemeral comparison. The plot compares register-centered pitch contours at normalized phrase time; duration and voicing differences remain visible. Only **Save vocal reference** with explicit authorization stores the exact recording and report on Dimpu, separately from approved audio. Reopen saved references from the same page. This increment does not yet regenerate a corrected take or interpret every musical nuance.
 
 **Acceptance pending:** The new regression tests are committed but were not executed in the development environment; the microphone and comparison workflow still need verification on the user's Windows/Edge setup. See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#14-milestone-31--sung-demonstration-capture-and-acoustic-review) for the branch and acceptance procedure.
+
+
+## Milestone 3.2 — musical alignment (feature branch)
+
+Open a new or existing saved vocal reference to see **Musical alignment** beneath the original comparison. The new silence-aware, bounded sequence alignment retains unmatched points, reports coverage and separate register/timing evidence, and suggests listening-review regions without editing audio. Opening earlier reports computes the additional metrics in memory; no new model or recording is needed. Six isolated synthetic alignment tests passed; full API and Windows acceptance remain pending. See PROJECT_CONTEXT.md section 15 for verification boundaries and next steps.
