@@ -23,6 +23,7 @@ from ai_singer.director_sessions import (
 )
 from ai_singer.storage import StorageConfigurationError
 from ai_singer.rmvpe_pitch import RMVPEUnavailable
+from ai_singer.vocal_alignment import align_performances
 
 router = APIRouter()
 MAX_REFERENCES = 12
@@ -141,6 +142,7 @@ def analyze_reference(session_id, take_id, start, end, recording, *,
         "start_seconds": start, "end_seconds": end, "estimator": estimator,
         "target_analysis": target, "demo_analysis": demo,
         "comparison": compare_contours(target, demo),
+        "alignment": align_performances(target, demo),
         "status": "analysis_only",
     }
     if not save:
@@ -232,7 +234,12 @@ def list_references(session_id: str):
 @router.get(BASE + "/{reference_id}")
 def get_reference(session_id: str, reference_id: str):
     try:
-        return _read_report(_reference_path(session_id, reference_id))
+        report = _read_report(_reference_path(session_id, reference_id))
+        # Read-only upgrade: earlier saved reports already retain the raw feature tracks.
+        # Do not rewrite their report.json or require the microphone/model again.
+        if "alignment" not in report:
+            report["alignment"] = align_performances(report["target_analysis"], report["demo_analysis"])
+        return report
     except _ERRORS as exc:
         raise _http(exc) from exc
 
