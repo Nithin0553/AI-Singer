@@ -246,3 +246,12 @@ Saved feedback notes have a **Use this interval** shortcut, but their Telugu/Eng
 ### Hearing the effect of a Director Mode passage edit
 
 If a saved pitch/gain take seems unchanged, check the **time range**. The initial implementation started at `0.00–1.00s` and the first actual singing preview is much louder later in the recording. The upgraded Director Mode now suggests the strongest measured two-second interval by RMS (not necessarily a vocal region), preserves manually selected times, and provides **Play original passage** / **Play corrected passage** controls for the exact edited range. New takes include measured changed-sample percentage, source/edited RMS and a quiet-selection warning; source/approved audio is never overwritten. See [the passage correction troubleshooting and testing guide](docs/passage-corrections.md#audible-change-review-and-initial-range-fix-2026-11-26).
+
+
+## Milestone 3.1 — vocal direction (feature branch)
+
+The director can now demonstrate the desired performance by singing or humming instead of specifying numeric pitch/gain changes. In Director Mode, select a saved take and a 1–15-second passage and choose **Record vocal correction**. Listen to the exact passage, record, click **Done Singing**, then listen to your demonstration. Uploading an existing sung audio clip is also supported.
+
+Choose YIN or your configured RMVPE checkpoint, then **Analyze demonstration** for an ephemeral comparison. The plot compares register-centered pitch contours at normalized phrase time; duration and voicing differences remain visible. Only **Save vocal reference** with explicit authorization stores the exact recording and report on Dimpu, separately from approved audio. Reopen saved references from the same page. This increment does not yet regenerate a corrected take or interpret every musical nuance.
+
+**Acceptance pending:** The new regression tests are committed but were not executed in the development environment; the microphone and comparison workflow still need verification on the user's Windows/Edge setup. See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#14-milestone-31--sung-demonstration-capture-and-acoustic-review) for the branch and acceptance procedure.

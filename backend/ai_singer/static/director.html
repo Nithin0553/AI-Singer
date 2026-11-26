@@ -83,7 +83,7 @@ audio{display:block;width:100%;margin-top:8px}.take{border:1px solid #d7e2eb;pad
 
 <section class="panel">
  <h2>Direct a specific passage</h2>
- <p class="small">Listen to the take, set an interval, and describe the change you want in English or Telugu.</p>
+ <p class="small">Listen to the take, set an interval, and sing the desired correction. Written notes remain optional.</p>
  <div id="feedbackTime">
   <label>Start (seconds)<input id="feedbackStart" type="number" min="0" step="0.01" value="0"></label>
   <label>End (seconds)<input id="feedbackEnd" type="number" min="0" step="0.01" value="1"></label>
@@ -94,7 +94,9 @@ audio{display:block;width:100%;margin-top:8px}.take{border:1px solid #d7e2eb;pad
   <button class="secondary" type="button" id="findAudible">Find an audible passage</button>
  </div>
  <p id="audibleHint" class="small" role="status">Choose a take to find its strongest two-second section.</p>
- <label for="feedbackText">Correction instruction</label>
+ <button type="button" id="recordVocalCorrection">Record vocal correction</button>
+ <p class="small">Sing or hum the desired performance instead of describing musical parameters. The AI listens until Done Singing.</p>
+ <label for="feedbackText">Optional written correction note</label>
  <textarea id="feedbackText" maxlength="300" placeholder="Example: At 5–6 seconds, keep the rising glide smoother."></textarea>
  <button type="button" id="addFeedback">Save correction note</button>
  <p class="note"><strong>Important:</strong> Corrections are saved for review only. This milestone does not yet interpret language or regenerate just the selected passage.</p>
@@ -451,6 +453,15 @@ async function loadVoices(){
   busyState(busy);
  }catch(e){message(String(e.message||e),true);}
 }
+get("recordVocalCorrection").addEventListener("click",()=>{
+ if(!current||busy||!selectedTakeId)return;
+ const start=Number(feedbackStart.value),end=Number(feedbackEnd.value);
+ if(feedbackStart.value===""||feedbackEnd.value===""||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end-start<1||end-start>15){
+  message("Choose a 1–15 second passage for vocal direction.",true);return;
+ }
+ stopClips();originalPlayer.pause();takePlayer.pause();parentTakePlayer.pause();
+ location.href="/director/vocal-reference?"+new URLSearchParams({session:current.id,take:selectedTakeId,start:String(start),end:String(end)});
+});
 window.addEventListener("beforeunload",()=>{if(audioContext)audioContext.close();});
 loadVoices();
 loadSessions(new URLSearchParams(window.location.search).get("session"));
