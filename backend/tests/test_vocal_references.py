@@ -1,5 +1,6 @@
 """Regression coverage for the sung-demonstration workflow."""
 from io import BytesIO
+import json
 import wave
 
 import numpy as np
@@ -98,6 +99,7 @@ def test_preview_and_explicit_save_preserve_original_approved_take_and_metadata(
     assert analyzed.status_code == 200, analyzed.text
     assert analyzed.json()["id"] is None
     assert analyzed.json()["comparison"]["jointly_voiced_points"] >= 10
+    assert analyzed.json()["alignment"]["method"] == "silence_aware_banded_edit_dtw_v1"
     assert not folder.exists()
     saved = post(session, save_reference="true", authorized_use="true")
     assert saved.status_code == 200, saved.text
@@ -129,7 +131,7 @@ def test_page_integration(session):
     assert 'id="recordVocalCorrection"' in director_page.text
     page = client.get("/director/vocal-reference")
     assert page.status_code == 200
-    for label in ('id="record"', 'id="done"', 'id="demoPlayer"', 'id="save"', 'id="contour"'):
+    for label in ('id="record"', 'id="done"', 'id="demoPlayer"', 'id="save"', 'id="contour"', 'id="alignedContour"', 'id="reviewPlan"'):
         assert label in page.text
 
 
@@ -149,3 +151,21 @@ def test_reference_cap_and_symlink_guard(session, monkeypatch, tmp_path):
         pytest.skip("Symlinks are restricted on this machine")
     assert post(session, save_reference="true", authorized_use="true").status_code == 422
     assert not any(outside.iterdir())
+
+
+def test_old_saved_report_is_aligned_without_rewriting_it(session):
+    client, root, sid, tid, *_ = session
+    response = post(session, save_reference="true", authorized_use="true")
+    assert response.status_code == 200, response.text
+    old = response.json()
+    reference_id = old["id"]
+    old.pop("alignment")
+    path = (root / "outputs" / "director_sessions" / sid / "vocal_references"
+            / reference_id / "report.json")
+    path.write_text(json.dumps(old), encoding="utf-8")
+    before = path.read_bytes()
+    result = client.get(f"/director/sessions/{sid}/vocal-references/{reference_id}")
+    assert result.status_code == 200, result.text
+    assert result.json()["alignment"]["method"] == "silence_aware_banded_edit_dtw_v1"
+    assert result.json()["comparison"] == old["comparison"]
+    assert path.read_bytes() == before
