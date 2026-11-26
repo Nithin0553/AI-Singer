@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Singer — Vocal direction</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f4f7fa;color:#233447;font:15px/1.5 system-ui,Segoe UI,sans-serif}main{max-width:1000px;margin:auto;padding:24px 16px}section{background:white;border:1px solid #d9e2eb;border-radius:14px;padding:20px;margin:16px 0}h1,h2{margin:0 0 12px}h2{font-size:19px}a{color:#155e9f}button{background:#155e9f;color:white;border:0;border-radius:8px;padding:10px 14px;font:inherit;cursor:pointer}button:disabled{opacity:.45;cursor:default}input,select{font:inherit;padding:7px;max-width:100%}label{display:block;margin:8px 0}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}audio{width:100%}p{margin:8px 0;color:#506375}canvas{width:100%;height:240px;border:1px solid #d9e2eb;border-radius:8px}pre{white-space:pre-wrap;overflow-wrap:anywhere}#status{min-height:24px}#status.error{color:#b13333}.target{color:#155e9f}.demo{color:#a65523}
+</style></head>
+<body><main>
+<a id="back" href="/director">Back to Director Mode</a>
+<h1>Direct with your voice</h1>
+<p>Listen to the selected passage, then sing or hum how it should sound. The AI waits until you finish.</p>
+<p id="status" role="status" aria-live="polite">Loading selected take…</p>
+<section>
+<h2>1. Listen to the existing passage</h2>
+<p id="selection"></p>
+<div class="row"><label>Start (seconds) <input id="start" type="number" min="0" step="0.01"></label><label>End (seconds) <input id="end" type="number" min="0" step="0.01"></label><button id="loadPassage" disabled>Load passage</button></div>
+<audio id="targetPlayer" controls preload="none"></audio>
+<p>Choose 1–15 seconds within the take.</p>
+</section>
+<section>
+<h2>2. Sing your correction</h2>
+<div class="row"><button id="record" disabled>Record vocal correction</button><button id="done" disabled>Done Singing</button><span id="recordState"></span></div>
+<p>Record 1–14 seconds. The recorder stops at 14 seconds to respect the analysis limit. Use headphones for a clean reference.</p>
+<label>Or select an existing sung recording <input id="upload" type="file" accept="audio/*,.m4a,.webm,.wav" disabled></label>
+<audio id="demoPlayer" controls preload="metadata"></audio>
+<p>Nothing is saved by recording or listening alone.</p>
+</section>
+<section>
+<h2>3. Compare the performances</h2>
+<label>Pitch estimator <select id="estimator"><option value="yin">YIN (CPU)</option><option value="rmvpe">RMVPE (configured checkpoint)</option></select></label>
+<div class="row"><button id="analyze" disabled>Analyze demonstration</button><label><input id="consent" type="checkbox"> I authorize saving this recording to Dimpu.</label><button id="save" disabled>Save vocal reference</button></div>
+<p>Analysis is an evidence-only comparison; no candidate audio is generated or approved automatically.</p>
+<div id="result" hidden>
+<div class="row"><strong class="target">Selected take</strong><strong class="demo">Your demonstration</strong></div>
+<canvas id="contour" width="800" height="240" aria-label="Relative pitch contours by normalized phrase time"></canvas>
+<p>Relative pitch (semitones from each recording's median) across normalized phrase time; gaps indicate unvoiced estimates.</p>
+<pre id="summary"></pre>
+<details><summary>Measured pitch transitions and quiet intervals</summary><pre id="details"></pre></details>
+</div>
+</section>
+<section><h2>Saved vocal references</h2><select id="history" disabled><option value="">Choose a reference</option></select> <button id="openSaved" disabled>Open saved reference</button><p>References are separate from original and approved takes.</p></section>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const q=new URLSearchParams(location.search), sid=q.get("session"),tid=q.get("take");
+const base="/director/sessions/"+encodeURIComponent(sid)+"/vocal-references";
+const target=$("targetPlayer"),demo=$("demoPlayer");
+let ready=false,busy=false,recording=false,recorder=null,stream=null,timeout=null,blob=null,localUrl=null,passageLoaded=false;
+function message(s,error=false){$("status").textContent=s;$("status").classList.toggle("error",error);}
+function controls(){
+ const lock=busy||recording;
+ for(const id of ["start","end","loadPassage","record","upload","estimator","consent","history"])
+  $(id).disabled=lock||!ready;
+ $("record").disabled=lock||!ready||!passageLoaded;
+ $("done").disabled=!recording;
+ $("analyze").disabled=lock||!ready||!blob||!passageLoaded;
+ $("save").disabled=$("analyze").disabled||!$("consent").checked;
+ $("openSaved").disabled=lock||!ready||!$("history").value;
+}
+async function json(url,options){
+ const r=await fetch(url,options);
+ if(!r.ok){let error="HTTP "+r.status;try{const data=await r.json();if(typeof data.detail==="string")error=data.detail;}catch{}throw Error(error);}
+ return r.json();
+}
+function times(){
+ const start=Number($("start").value),end=Number($("end").value);
+ if(!$("start").value||!$("end").value||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end-start<1||end-start>15)
+  throw Error("Choose a 1–15 second passage.");
+ return {take_id:tid,start_seconds:String(start),end_seconds:String(end)};
+}
+function pause(){target.pause();demo.pause();}
+function invalidate(){passageLoaded=false;target.pause();target.removeAttribute("src");target.load();$("result").hidden=true;controls();}
+for(const id of ["start","end"])$(id).addEventListener("input",invalidate);
+async function loadPassage(){
+ const params=new URLSearchParams(times());
+ // Fetch first to surface a server validation error rather than an unexplained player error.
+ const r=await fetch(base+"/passage?"+params);
+ if(!r.ok){let detail="Cannot load passage.";try{detail=(await r.json()).detail||detail;}catch{}throw Error(detail);}
+ // Discard the validation response body; the browser streams the same validated route.
+ await r.blob();
+ target.src=base+"/passage?"+params;passageLoaded=true;
+}
+$("loadPassage").onclick=async()=>{busy=true;controls();try{await loadPassage();message("Passage ready. Listen, then record your correction.");}catch(e){message(e.message,true);}finally{busy=false;controls();}};
+function replaceDemo(data){
+ demo.pause();if(localUrl)URL.revokeObjectURL(localUrl);localUrl=null;
+ blob=data;$("consent").checked=false;$("result").hidden=true;
+ if(data){localUrl=URL.createObjectURL(data);demo.src=localUrl;}
+ else{demo.removeAttribute("src");demo.load();}
+ controls();
+}
+function stopTracks(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}}
+function stop(){clearTimeout(timeout);if(recorder&&recorder.state!=="inactive")recorder.stop();}
+$("record").onclick=async()=>{
+ if(busy||recording||!passageLoaded)return;
+ if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){message("Microphone recording is unavailable. Upload a sung reference instead.",true);return;}
+ busy=true;controls();pause();
+ try{
+  stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  recorder=new MediaRecorder(stream);const chunks=[];
+  recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+  recorder.onerror=()=>{clearTimeout(timeout);stopTracks();recording=false;busy=false;message("Recording failed. Try again or upload audio.",true);controls();};
+  recorder.onstop=()=>{
+   clearTimeout(timeout);stopTracks();recording=false;busy=false;
+   const audio=new Blob(chunks,{type:recorder.mimeType||"audio/webm"});
+   if(audio.size){replaceDemo(audio);message("Recording finished. Listen, then analyze or save.");}
+   else message("No audio was recorded. Try again.",true);
+   $("recordState").textContent="";controls();
+  };
+  replaceDemo(null);$("upload").value="";recorder.start();recording=true;
+  $("recordState").textContent="Recording…";message("Sing your reference, then press Done Singing.");
+  timeout=setTimeout(stop,14000);
+ }catch(e){stopTracks();message("Cannot access microphone: "+e.message,true);}
+ finally{busy=false;controls();}
+};
+$("done").onclick=()=>{if(recording)stop();};
+$("upload").onchange=()=>{const file=$("upload").files[0];if(file){replaceDemo(file);message("Reference selected. Listen before analyzing.");}};
+for(const player of [target,demo])player.addEventListener("play",()=>{if(recording||busy)player.pause();else (player===target?demo:target).pause();});
+function show(report){
+ const c=report.comparison;
+ $("result").hidden=false;
+ const n=x=>x===null?"Not available":String(x);
+ $("summary").textContent=[
+  "Selected passage: "+c.target_duration_seconds+" s",
+  "Demonstration: "+c.demo_duration_seconds+" s",
+  "Duration difference: "+c.duration_difference_seconds+" s",
+  "Median register difference: "+n(c.register_difference_semitones)+" semitones",
+  "Relative contour difference: "+n(c.relative_contour_median_difference_cents)+" cents",
+  "Jointly voiced points: "+c.jointly_voiced_points+"/101",
+  "Voicing mismatch points: "+c.voicing_mismatch_points+"/101",
+  "",...c.warnings
+ ].join("\n");
+ $("details").textContent=JSON.stringify({selected:{transitions:report.target_analysis.pitch_transitions,quiet:report.target_analysis.quiet_intervals},demonstration:{transitions:report.demo_analysis.pitch_transitions,quiet:report.demo_analysis.quiet_intervals}},null,2);
+ const canvas=$("contour"),ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
+ const series=[c.target_relative_midi,c.demo_relative_midi],values=series.flat().filter(v=>v!==null);
+ const scale=Math.max(3,...values.map(Math.abs));
+ ctx.clearRect(0,0,w,h);ctx.strokeStyle="#cbd5e1";ctx.beginPath();ctx.moveTo(20,h/2);ctx.lineTo(w-20,h/2);ctx.stroke();
+ series.forEach((points,i)=>{ctx.strokeStyle=i===0?"#155e9f":"#a65523";ctx.lineWidth=2;ctx.beginPath();let started=false;
+  points.forEach((v,j)=>{if(v===null){started=false;return;}const x=20+j*(w-40)/100,y=h/2-v*(h-30)/(2*scale);if(started)ctx.lineTo(x,y);else{ctx.moveTo(x,y);started=true;}});ctx.stroke();
+ });
+}
+async function history(){
+ const list=await json(base);$("history").replaceChildren(new Option("Choose a reference",""));
+ for(const r of list.references.filter(x=>x.take_id===tid))$("history").add(new Option(r.created_at+" · "+r.start_seconds+"–"+r.end_seconds+" s",r.id));
+}
+async function submit(save){
+ if(busy||recording||!blob||!passageLoaded)return;
+ busy=true;pause();controls();message(save?"Analyzing and saving locally…":"Analyzing your demonstration locally…");
+ try{
+  const form=new FormData();for(const [k,v] of Object.entries(times()))form.append(k,v);
+  form.append("file",blob,"reference");form.append("estimator",$("estimator").value);
+  form.append("save_reference",String(save));form.append("authorized_use",String($("consent").checked));
+  const report=await json(base,{method:"POST",body:form});show(report);
+  message(save?"Vocal reference saved. Your existing takes and approval are unchanged.":"Analysis ready. No recording was saved.");
+  if(save){$("consent").checked=false;await history();}
+ }catch(e){message(e.message,true);}finally{busy=false;controls();}
+}
+$("analyze").onclick=()=>submit(false);$("save").onclick=()=>submit(true);
+$("consent").onchange=controls;$("history").onchange=controls;
+$("openSaved").onclick=async()=>{
+ busy=true;pause();controls();try{
+  const url=base+"/"+encodeURIComponent($("history").value),report=await json(url);
+  replaceDemo(null);$("upload").value="";$("start").value=report.start_seconds;$("end").value=report.end_seconds;
+  $("estimator").value=report.estimator;await loadPassage();demo.src=url+"/audio";show(report);
+  message("Saved reference loaded for listening and review.");
+ }catch(e){message(e.message,true);}finally{busy=false;controls();}
+};
+window.addEventListener("pagehide",()=>{stop();stopTracks();if(localUrl)URL.revokeObjectURL(localUrl);});
+(async()=>{
+ try{
+  if(!/^[0-9a-f]{32}$/.test(sid||"")||!/^[0-9a-f]{32}$/.test(tid||""))throw Error("Open a saved take in Director Mode first.");
+  $("back").href="/director?session="+encodeURIComponent(sid);
+  const session=await json("/director/sessions/"+sid),take=session.takes.find(t=>t.id===tid);
+  if(!take)throw Error("Selected take no longer exists.");
+  $("selection").textContent=take.label+" · "+session.duration_seconds+" s source duration";
+  $("start").value=q.get("start")||"0";$("end").value=q.get("end")||String(Math.min(2,session.duration_seconds));
+  ready=true;await history();
+  try{await loadPassage();message("Listen to the selected passage, then record.");}catch(e){message(e.message,true);}
+ }catch(e){message(e.message,true);}finally{controls();}
+})();
+</script></body></html>
