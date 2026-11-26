@@ -290,3 +290,9 @@ def director_audible_passage(session_id: str, take_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PassageEditError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+# Sung demonstration routes are independent of existing take editing.
+from ai_singer.vocal_references import router as vocal_reference_router
+
+app.include_router(vocal_reference_router)
