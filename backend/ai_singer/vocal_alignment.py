@@ -163,7 +163,8 @@ def align_performances(target, demo):
         "method": "silence_aware_banded_edit_dtw_v1",
         "status": "insufficient_evidence", "points_per_phrase": POINTS,
         "band_points": BAND, "warnings": warnings, "path": [],
-        "review_regions": [], "metrics": None, "target_edges": None, "demo_edges": None,
+        "review_regions": [], "timing_review": [], "metrics": None,
+        "target_edges": None, "demo_edges": None,
     }
     for name, features in (("target_edges", a), ("demo_edges", b)):
         if features is not None:
@@ -175,7 +176,7 @@ def align_performances(target, demo):
         return result
 
     path = _align(a, b)
-    rows, residuals, baseline = [], [], []
+    rows, residuals = [], []
     for i, j in path:
         left, right = _point(a, i), _point(b, j)
         delta = None
@@ -212,6 +213,40 @@ def align_performances(target, demo):
         },
         review_regions=_review_regions(rows, reliable),
     )
+    timing = []
+    if abs(a["leading_quiet_seconds"] - b["leading_quiet_seconds"]) >= .12:
+        timing.append({"action": "review_leading_quiet", "executable": False,
+                       "target_seconds": a["leading_quiet_seconds"],
+                       "demo_seconds": b["leading_quiet_seconds"]})
+    if abs(a["trailing_quiet_seconds"] - b["trailing_quiet_seconds"]) >= .12:
+        timing.append({"action": "review_trailing_quiet", "executable": False,
+                       "target_seconds": a["trailing_quiet_seconds"],
+                       "demo_seconds": b["trailing_quiet_seconds"]})
+    if abs(a["active_duration_seconds"] - b["active_duration_seconds"]) >= .15:
+        timing.append({"action": "review_phrase_duration", "executable": False,
+                       "target_seconds": a["active_duration_seconds"],
+                       "demo_seconds": b["active_duration_seconds"]})
+    # Keep unmatched ranges visible, even when the overall alignment is uncertain.
+    pending = []
+    def flush():
+        if len(pending) < 3:
+            return
+        spans = {}
+        for side in ("target", "demo"):
+            points = [row[side]["time_seconds"] for row in pending if row[side] is not None]
+            spans[side + "_seconds"] = [points[0], points[-1]] if points else None
+        timing.append({"action": "review_unmatched_or_voicing_region", "executable": False,
+                       **spans})
+    for row in rows:
+        left, right = row["target"], row["demo"]
+        if left is None or right is None or ((left["absolute_midi"] is None) !=
+                                            (right["absolute_midi"] is None)):
+            pending.append(row)
+        else:
+            flush()
+            pending = []
+    flush()
+    result["timing_review"] = timing[:24]
     if octave:
         warnings.append("Octave-review candidates suppress correction proposals.")
     if not reliable:
