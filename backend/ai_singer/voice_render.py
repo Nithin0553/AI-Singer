@@ -209,7 +209,10 @@ def render_voice(recording: bytes, voice_id: str, *, authorized_use: bool) -> by
             source = Path(folder) / "source.wav"
             output = Path(folder) / "converted.wav"
             source.write_bytes(_pcm_wav(samples))
-            cmd = [str(python), str(root / "infer" / "cli.py"),
+            # Launch as a package from RVC's root. Direct script execution
+            # puts root/infer (not root) on sys.path, breaking absolute
+            # imports such as "from infer.vc.modules import VC".
+            cmd = [str(python), "-m", "infer.cli",
                    "--model", str(profile.model_path),
                    "--speaker-id", str(profile.speaker_id),
                    "--input", str(source), "--output", str(output),

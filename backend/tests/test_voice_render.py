@@ -38,8 +38,13 @@ def installed(monkeypatch, tmp_path):
     runtime = tmp_path / "rvc-runtime"
     cli = runtime / "infer" / "cli.py"
     cli.parent.mkdir(parents=True)
+    # Exercise the same absolute package imports used by real RVC conversion.
+    (cli.parent / "_launch_contract.py").write_text("launch_mode = 'infer'\n")
     # Fake third-party CLI for testing the real subprocess/WAV boundary.
     cli.write_text("""import argparse, shutil
+from infer._launch_contract import launch_mode
+assert launch_mode == 'infer'
+assert __package__ == 'infer'
 p=argparse.ArgumentParser()
 for flag in ('model','speaker-id','input','output','pitch','f0-method','index-rate'):
     p.add_argument('--'+flag, required=True)
@@ -227,3 +232,17 @@ def test_diagnostic_excerpt_bounds_output_and_handles_bad_bytes():
     assert excerpt.endswith("very last error")
     assert len(excerpt) <= 2500
     assert "\ufffd" in excerpt
+
+def test_rvc_infer_package_import_with_dedicated_python(installed, monkeypatch, tmp_path):
+    """Regression: direct infer/cli.py execution fails to import infer.*.
+
+    Ensure it works without depending on PYTHONPATH or a developer checkout.
+    """
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "unrelated"))
+    response = TestClient(app).post(
+        "/render-voice",
+        data={"voice_id": "my-voice", "authorized_use": "true"},
+        files={"file": ("vocal.wav", sample_wav(), "audio/wav")},
+    )
+    assert response.status_code == 200, response.text
+    assert response.content[:4] == b"RIFF"

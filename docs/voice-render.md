@@ -13,7 +13,9 @@ cd C:\Users\nithi\AI-Singer
 # Examples only: change to where you installed and reviewed RVC.
 $env:AI_SINGER_RVC_ROOT = 'D:\AI_Singer\runtime\rvc'
 $env:AI_SINGER_RVC_PYTHON = 'D:\AI_Singer\runtime\rvc\runtime\python.exe'
-& $env:AI_SINGER_RVC_PYTHON "$env:AI_SINGER_RVC_ROOT\infer\cli.py" --help
+Push-Location $env:AI_SINGER_RVC_ROOT
+try { & $env:AI_SINGER_RVC_PYTHON -m infer.cli --help }
+finally { Pop-Location }
 ```
 
 The above RVC paths are *not* created or verified by AI Singer. Its own backend and virtual environment stay on the internal disk; the voice models and temporary output live on the Seagate `Dimpu` drive. The RTX 3050 Ti with 4 GiB VRAM may not be sufficient for all model configurations; use a compatible CPU runtime if needed.
@@ -120,7 +122,7 @@ Test-Path '.\assets\hubert_base\config.json'
 Test-Path '.\assets\hubert_base\preprocessor_config.json'
 Test-Path '.\assets\hubert_base\pytorch_model.bin'
 Test-Path '.\assets\rmvpe\rmvpe.pt'
-& $py .\infer\cli.py --help
+& $py -m infer.cli --help
 ~~~
 
 The four checks must print True. These RVC HuBERT/ContentVec and RMVPE files are separate from AI Singer's ONNX pitch model. Training-only pretrained checkpoints, mute.zip and index files are unnecessary for our first index-rate 0 conversion.
@@ -145,7 +147,7 @@ First check the checkpoint metadata without a vocal recording:
 ~~~powershell
 cd D:\AI_Singer\runtime\rvc
 $py = 'D:\AI_Singer\runtime\rvc\.venv\Scripts\python.exe'
-& $py .\infer\cli.py --model 'D:\AI_Singer\models\voice_conversion\shadowww-t02\shadowww-t02.pth' --list-speakers
+& $py -m infer.cli --model 'D:\AI_Singer\models\voice_conversion\shadowww-t02\shadowww-t02.pth' --list-speakers
 ~~~
 
 If this command fails, the displayed exception is the first issue to resolve. It exercises model checkpoint loading but **not** actual conversion. Do not blindly alter PyTorch weights-only deserialization or install unrelated models based only on HTTP 502.
@@ -164,3 +166,19 @@ cd C:\Users\nithi\AI-Singer\backend
 After retrying a permitted original vocal in Voice Lab, the local terminal logs the RVC exit code and up to the last 2,500 characters of each captured stdout/stderr stream. These details are **never included in HTTP responses or persisted to a log file by AI Singer**. RVC may print private paths or details: redact sensitive content before posting terminal output. Disable verbose logging later by stopping the server, running Remove-Item Env:\AI_SINGER_RVC_DEBUG -ErrorAction SilentlyContinue, and restarting.
 
 Possible failures include checkpoint format/serialization, unsupported packages, a missing runtime component or CUDA out-of-memory on the 4-GiB GPU. None should be presumed until the concrete CLI error is obtained.
+
+### Fix for `No module named 'infer'` during RVC conversion
+
+**Observed on the user's Windows machine (2026-11-26):** An attempt to convert Test 2.m4a produced `POST /render-voice 502` with a local RVC subprocess exit code 1 and stderr `rvc-cli: error: No module named 'infer'`. The upstream RVC CLI's `--list-speakers` preflight worked (`0-0`), because it does not import `infer.vc.modules`; real conversion imports that package and requires RVC's repository root on Python's module search path.
+
+**Root cause in AI Singer:** The adapter launched `python D:\AI_Singer\runtime\rvc\infer\cli.py` as a script. Even with `cwd` set to RVC's root, Python places the script's parent folder (`infer`) rather than the RVC repository root first in `sys.path`. The launcher now uses **`python -m infer.cli`** with `cwd` explicitly set to the RVC repository root. This fixes import resolution without installing packages into the wrong environment, editing upstream RVC source, changing model weights, or weakening PyTorch checkpoint safety.
+
+The corrected command can be checked directly from RVC's root:
+
+~~~powershell
+cd D:\AI_Singer\runtime\rvc
+$py = '.\.venv\Scripts\python.exe'
+& $py -m infer.cli --help
+~~~
+
+**Windows acceptance:** Stop Uvicorn, pull AI Singer `main`, run `backend\.venv\Scripts\python -m pytest -q tests/test_voice_render.py`, restore the three `AI_SINGER_...` RVC/storage environment variables and start Uvicorn in that shell. If a *different* inference error occurs, keep `AI_SINGER_RVC_DEBUG=1` temporarily to see the bounded child subprocess traceback. No successful neural conversion has yet been confirmed after this import-path fix.
