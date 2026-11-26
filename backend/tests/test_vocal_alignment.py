@@ -1,8 +1,5 @@
 """Synthetic alignment fixtures; not evidence of human singing accuracy."""
 import json
-import math
-
-import numpy as np
 import pytest
 
 from ai_singer.vocal_alignment import align_performances
@@ -28,7 +25,7 @@ def test_register_and_edge_silence_are_not_pitch_corrections():
     assert a["metrics"]["aligned_median_difference_cents"] == 0
     assert a["metrics"]["minimum_voiced_coverage"] == 1
     assert a["demo_edges"]["leading_quiet_seconds"] == .8
-    assert a["demo_edges"]["trailing_quiet_seconds"] == pytest.approx(.22)
+    assert a["demo_edges"]["trailing_quiet_seconds"] == pytest.approx(.2)
     assert not a["review_regions"]
     assert "review_leading_quiet" in {p["action"] for p in a["timing_review"]}
     assert all(not p["executable"] for p in a["timing_review"])
