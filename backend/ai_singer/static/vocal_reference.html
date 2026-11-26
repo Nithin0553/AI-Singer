@@ -165,13 +165,13 @@ function showAlignment(report){
  }
  if(m){
   lines.push("Edge-trimmed uniform difference: "+n(m.edge_trimmed_uniform_median_cents)+" cents",
-    "Locally aligned difference: "+n(m.aligned_median_difference_cents)+" cents",
-    "Aligned 90th-percentile difference: "+n(m.aligned_p90_difference_cents)+" cents",
+    "Locally aligned difference (matched voiced points only): "+n(m.aligned_median_difference_cents)+" cents",
+    "Aligned 90th-percentile difference (matched points only): "+n(m.aligned_p90_difference_cents)+" cents",
     "Minimum voiced match coverage: "+Math.round(m.minimum_voiced_coverage*100)+"%",
     "Unmatched selected points: "+m.unmatched_target_points+" · unmatched demonstration points: "+m.unmatched_demo_points,
     "Matched points with voicing mismatch: "+m.voicing_mismatch_matches);
  }
- $("alignmentSummary").textContent=lines.concat(["",...a.warnings]).join("\n");
+ $("alignmentSummary").textContent=lines.concat(["", "A small aligned difference can result from dropping dissimilar points. Always review coverage, gaps and correspondence status.",...a.warnings]).join("\n");
  if(a.path.length)drawContours("alignedContour",[a.path.map(r=>r.target?.relative_midi??null),a.path.map(r=>r.demo?.relative_midi??null)]);
  const labels={review_leading_quiet:"Review recording lead-in",review_trailing_quiet:"Review ending quiet",review_phrase_duration:"Review active phrase duration",review_unmatched_or_voicing_region:"Listen to unmatched or voicing-different region"};
  const add=text=>{const p=document.createElement("p");p.textContent=text;$("reviewPlan").append(p);};
