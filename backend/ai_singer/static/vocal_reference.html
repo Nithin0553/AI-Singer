@@ -35,6 +35,15 @@
 <p>Relative pitch (semitones from each recording's median) across normalized phrase time; gaps indicate unvoiced estimates.</p>
 <pre id="summary"></pre>
 <details><summary>Measured pitch transitions and quiet intervals</summary><pre id="details"></pre></details>
+<hr>
+<h2>4. Musical alignment</h2>
+<p>Compare the original normalized-time result above with a silence-aware, bounded alignment. Unmatched points remain visible as gaps; no audio is changed.</p>
+<canvas id="alignedContour" width="800" height="240" aria-label="Aligned relative pitch contours with unmatched gaps"></canvas>
+<p>Horizontal axis is alignment step, not recording time. Blue = selected take, orange = demonstration.</p>
+<pre id="alignmentSummary"></pre>
+<h3>Suggested listening review</h3>
+<div id="reviewPlan"></div>
+<p>These are review suggestions, not instructions executed by the AI. A register difference alone never triggers a pitch shift.</p>
 </div>
 </section>
 <section><h2>Saved vocal references</h2><select id="history" disabled><option value="">Choose a reference</option></select> <button id="openSaved" disabled>Open saved reference</button><p>References are separate from original and approved takes.</p></section>
@@ -130,14 +139,57 @@ function show(report){
   "",...c.warnings
  ].join("\n");
  $("details").textContent=JSON.stringify({selected:{transitions:report.target_analysis.pitch_transitions,quiet:report.target_analysis.quiet_intervals},demonstration:{transitions:report.demo_analysis.pitch_transitions,quiet:report.demo_analysis.quiet_intervals}},null,2);
- const canvas=$("contour"),ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
- const series=[c.target_relative_midi,c.demo_relative_midi],values=series.flat().filter(v=>v!==null);
+ drawContours("contour",[c.target_relative_midi,c.demo_relative_midi]);
+ showAlignment(report);
+}
+function drawContours(id,series){
+ const canvas=$(id),ctx=canvas.getContext("2d"),w=canvas.width,h=canvas.height;
+ const values=series.flat().filter(v=>v!==null);
  const scale=Math.max(3,...values.map(Math.abs));
+ const steps=Math.max(1,...series.map(s=>s.length-1));
  ctx.clearRect(0,0,w,h);ctx.strokeStyle="#cbd5e1";ctx.beginPath();ctx.moveTo(20,h/2);ctx.lineTo(w-20,h/2);ctx.stroke();
  series.forEach((points,i)=>{ctx.strokeStyle=i===0?"#155e9f":"#a65523";ctx.lineWidth=2;ctx.beginPath();let started=false;
-  points.forEach((v,j)=>{if(v===null){started=false;return;}const x=20+j*(w-40)/100,y=h/2-v*(h-30)/(2*scale);if(started)ctx.lineTo(x,y);else{ctx.moveTo(x,y);started=true;}});ctx.stroke();
+  points.forEach((v,j)=>{if(v===null){started=false;return;}const x=20+j*(w-40)/steps,y=h/2-v*(h-30)/(2*scale);if(started)ctx.lineTo(x,y);else{ctx.moveTo(x,y);started=true;}});ctx.stroke();
  });
 }
+function showAlignment(report){
+ const a=report.alignment;
+ $("reviewPlan").replaceChildren();
+ drawContours("alignedContour",[[],[]]);
+ if(!a){$("alignmentSummary").textContent="Alignment unavailable for this report.";return;}
+ const m=a.metrics, n=x=>x==null?"Not available":String(x);
+ const status={reviewable_alignment:"Reviewable correspondence",uncertain_alignment:"Uncertain correspondence — pitch proposals withheld",insufficient_evidence:"Insufficient voiced evidence"};
+ const lines=[status[a.status]||a.status];
+ for(const [label,edges] of [["Selected",a.target_edges],["Demonstration",a.demo_edges]]){
+  if(edges)lines.push(label+" edge quiet: "+edges.leading_quiet_seconds+" s before, "+edges.trailing_quiet_seconds+" s after; active span "+edges.active_duration_seconds+" s");
+ }
+ if(m){
+  lines.push("Edge-trimmed uniform difference: "+n(m.edge_trimmed_uniform_median_cents)+" cents",
+    "Locally aligned difference: "+n(m.aligned_median_difference_cents)+" cents",
+    "Aligned 90th-percentile difference: "+n(m.aligned_p90_difference_cents)+" cents",
+    "Minimum voiced match coverage: "+Math.round(m.minimum_voiced_coverage*100)+"%",
+    "Unmatched selected points: "+m.unmatched_target_points+" · unmatched demonstration points: "+m.unmatched_demo_points,
+    "Matched points with voicing mismatch: "+m.voicing_mismatch_matches);
+ }
+ $("alignmentSummary").textContent=lines.concat(["",...a.warnings]).join("\n");
+ if(a.path.length)drawContours("alignedContour",[a.path.map(r=>r.target?.relative_midi??null),a.path.map(r=>r.demo?.relative_midi??null)]);
+ const labels={review_leading_quiet:"Review recording lead-in",review_trailing_quiet:"Review ending quiet",review_phrase_duration:"Review active phrase duration",review_unmatched_or_voicing_region:"Listen to unmatched or voicing-different region"};
+ const add=text=>{const p=document.createElement("p");p.textContent=text;$("reviewPlan").append(p);};
+ const span=(s,offset=0)=>s?s.map(x=>(x+offset).toFixed(2)).join("–")+" s":"unmatched";
+ for(const t of a.timing_review||[]){
+  const target=Array.isArray(t.target_seconds)?span(t.target_seconds,report.start_seconds):t.target_seconds==null?"unmatched":t.target_seconds+" s";
+  const demo=Array.isArray(t.demo_seconds)?span(t.demo_seconds):t.demo_seconds==null?"unmatched":t.demo_seconds+" s";
+  add((labels[t.action]||t.action)+": selected "+target+", demonstration "+demo+".");
+ }
+ for(const r of a.review_regions||[]){
+  const kind=r.action==="review_possible_fixed_pitch_shift"?"Review possible bounded pitch shift":"Review melodic contour";
+  add(kind+": selected take "+span([r.target_start_seconds,r.target_end_seconds],report.start_seconds)+
+    ", demonstration "+span([r.demo_start_seconds,r.demo_end_seconds])+
+    "; relative difference "+r.median_relative_difference_semitones+" semitones. Not an automatic edit.");
+ }
+ if(!$("reviewPlan").children.length)add("No specific review region proposed. Listen to both recordings before deciding.");
+}
+
 async function history(){
  const list=await json(base);$("history").replaceChildren(new Option("Choose a reference",""));
  for(const r of list.references.filter(x=>x.take_id===tid))$("history").add(new Option(r.created_at+" · "+r.start_seconds+"–"+r.end_seconds+" s",r.id));
