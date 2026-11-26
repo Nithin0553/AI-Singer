@@ -2,7 +2,7 @@
 
 AI Singer is a planned interactive AI singing studio in which a music director sings a melody, waits for the AI to listen and analyze it, then hears it reproduced by a selectable male or female AI singing voice. The director can correct sections or request optional creative alternatives.
 
-**Current status:** CPU-based YIN and RMVPE analysis and a local Pitch Lab visual comparison page. RMVPE inference has run successfully on the user's Windows machine; stable-note segmentation and octave review remain experimental. No full React studio, singing voice model, training, lyrics interpretation or conversational agent.
+**Current status:** YIN/RMVPE Pitch Lab and a working local RVC voice-conversion preview. A genuine first neural WAV was successfully generated on the user's Windows RTX 3050 Ti with an authorized noncommercial Shadowww T02 voice. **Director Mode Milestone 1** adds optional external-drive session/take persistence, approval and timed feedback notes; Windows acceptance is pending. Automated targeted revisions, language-aware music direction, training and full React studio are not yet implemented.
 
 ## Intended experience
 
@@ -221,10 +221,18 @@ Start the existing server, then open <http://127.0.0.1:8000/voice-lab> (also lin
 
 **Before a real conversion:** Read [the separate RVC/authorized voice setup guide](docs/voice-render.md) and use backend/examples/voice-profiles.example.json as a disabled-by-default manifest template. Configure the independent RVC CLI Python runtime with AI_SINGER_RVC_ROOT and AI_SINGER_RVC_PYTHON; keep checkpoints under AI_SINGER_STORAGE_ROOT/models/voice_conversion. No training data, third-party weights, or preapproved male/female voices are included. Never enable a checkpoint without confirming permissions and provenance.
 
-**Verification boundary:** The rendering API, permission checks, temporary-file cleanup, subprocess and WAV handling were tested locally using a *fake RVC executable that copies a WAV*. No genuine model inference or rendered target singing voice has been verified on the user's Windows laptop yet. Routine pitch calibration is no longer a prerequisite; focus next on obtaining a real authorized voice model and listening to the resulting audio.
+**Verification update:** The RVC integration was initially contract-tested with a fake subprocess. The user subsequently installed Shadowww T02 and an official RVC runtime and confirmed **a real successful neural voice-conversion WAV** from their Windows laptop. Universal fidelity and further musicianship capabilities remain unverified; no routine pitch calibration is required to continue.
 
 ### First noncommercial demo voice — Shadowww T02
 
 We've selected [Shadowww T02](https://huggingface.co/ShadowSH2306/shadowww-voices) as an **explicitly noncommercial RVC v2 prototype voice** (publisher terms: CC BY-NC 4.0, attribution required). It is a low/natural voice, not a Shreya imitation and not a licensed commercial-release voice.
 
-A safe, optional, checksum-verifying installation command is documented in [Voice Lab model setup](docs/voice-render.md#first-noncommercial-demo-model-shadowww-t02). It installs `shadowww-t02.pth` and the `voices.json` profile under the existing external drive, only if you accept the noncommercial license. It leaves your models and earlier source recordings alone and installs **no RVC runtime**. Full conversion still awaits a compatible third-party RVC environment and a real inference test.
+A safe, optional, checksum-verifying installation command is documented in [Voice Lab model setup](docs/voice-render.md#first-noncommercial-demo-model-shadowww-t02). It installs `shadowww-t02.pth` and the `voices.json` profile under the existing external drive, only if you accept the noncommercial license. It leaves your models and earlier source recordings alone and installs **no RVC runtime**. Real conversion has now succeeded on the user's configured Windows laptop. This checkpoint remains restricted to properly credited, noncommercial demos.
+
+## Director Mode — versioned singing takes
+
+**New local interface:** <http://127.0.0.1:8000/director>. After a successful authorized Voice Lab conversion, click **Save as Director session** to explicitly preserve the original source bytes and converted WAV under `AI_SINGER_STORAGE_ROOT/outputs/director_sessions/` on the external drive.
+
+Director Mode lets you open a saved session, listen to original and converted takes, adjust playback-only gain (+0 to +9 dB), approve a selected take, add Telugu/English time-range feedback notes, and generate another **full-phrase** RVC take from the saved original without overwriting prior work. Correction notes are **not interpreted or applied automatically yet**. Saved audio persists until the user deliberately removes it; ordinary Voice Lab previews remain ephemeral. This is an opt-in localhost, single-user workflow.
+
+Read [Director Mode behavior, data safety and acceptance steps](docs/director-mode.md). New tests: `backend/tests/test_director_sessions.py`. Windows acceptance of this milestone is pending; the earlier successful RVC preview is already confirmed.

@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Singer — Director Mode</title>
+<style>
+:root{color-scheme:light;font:15px/1.55 system-ui,-apple-system,Segoe UI,Arial,sans-serif;color:#233447;background:#f4f7fa}
+*{box-sizing:border-box}body{margin:0}main{max-width:1100px;margin:auto;padding:32px 18px 70px}
+h1{font-size:30px;line-height:1.15;margin:0 0 8px}h2{font-size:19px;margin:0 0 12px}h3{font-size:16px;margin:0}
+p{color:#506375;margin:8px 0 16px}a{color:#155e9f}
+.panel{background:white;padding:23px;border:1px solid #d9e2eb;border-radius:14px;margin:18px 0;box-shadow:0 4px 19px #15293b08}
+.row{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:18px}
+label{display:block;color:#31465a;font-size:13px;font-weight:600;margin:9px 0 5px}
+input[type=number],select,textarea{width:100%;padding:11px;border:1px solid #b7c5d3;border-radius:9px;font:inherit;background:#fff;color:#1e3145}
+textarea{resize:vertical;min-height:80px}button{border:0;background:#155e9f;color:white;border-radius:9px;font:inherit;font-weight:600;padding:10px 15px;cursor:pointer}
+button.secondary{background:#e9f0f7;color:#1c527b}button:hover:not(:disabled){filter:brightness(.95)}
+button:disabled{opacity:.45;cursor:not-allowed}.small{font-size:13px;color:#596b7d}.hidden{display:none}
+audio{display:block;width:100%;margin-top:8px}.take{border:1px solid #d7e2eb;padding:12px;border-radius:10px;margin:8px 0;background:#fbfcfe}
+.take.active{border-color:#1769ac;background:#eef7ff}.feedback{border-left:3px solid #7595b4;padding:9px 12px;background:#f5f8fc;margin:8px 0}
+.feedback button{font-size:12px;padding:5px 9px}.pill{font-size:12px;color:#13634f;background:#def2e8;border-radius:100px;padding:3px 8px}
+#status.error{color:#b13333}#status{min-height:20px}#gainDb{width:180px}#feedbackTime{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.note{background:#fff8ea;border-left:3px solid #ba9047;padding:12px;margin:12px 0;font-size:13px;color:#5e5138}
+@media(max-width:600px){main{padding:20px 12px 50px}.panel{padding:16px}#feedbackTime{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main>
+<h1>AI Singer / Director Mode</h1>
+<p>Review your original singing and converted takes, approve a version and save time-specific musical feedback.</p>
+<p><a href="/voice-lab">Back to Voice Lab</a> · <a href="/pitch-lab">Open Pitch Lab</a></p>
+
+<section class="panel">
+ <h2>Saved sessions on Dimpu</h2>
+ <div class="row">
+  <label for="sessionSelect">Session</label>
+  <select id="sessionSelect" style="flex:1;min-width:220px"><option value="">Loading…</option></select>
+  <button type="button" class="secondary" id="refreshSessions">Refresh sessions</button>
+ </div>
+ <p id="status" role="status" aria-live="polite" class="small">Loading saved work…</p>
+ <p class="small">Audio and metadata remain on your configured external drive. Previews are saved only when you choose <strong>Save as Director session</strong> in Voice Lab.</p>
+</section>
+
+<div id="workspace" class="hidden">
+<section class="panel">
+ <h2>Listen and compare</h2>
+ <p id="sessionInfo" class="small"></p>
+ <div class="columns">
+  <div><h3>Original performance</h3><audio id="originalPlayer" controls preload="metadata"></audio></div>
+  <div><h3 id="selectedHeading">Selected converted take</h3>
+   <audio id="takePlayer" controls preload="metadata"></audio>
+   <div class="row"><label for="gainDb">Playback boost</label><input id="gainDb" type="range" min="0" max="9" step="1" value="0"><strong id="gainText">+0 dB</strong></div>
+   <p class="small">Playback gain affects listening only; saved/downloaded WAVs are unchanged. Higher gain may clip.</p>
+   <a id="downloadTake" href="#" download="ai-singer-director-take.wav">Download selected WAV</a>
+  </div>
+ </div>
+</section>
+
+<section class="panel">
+ <h2>Take history</h2>
+ <div id="takesList"></div>
+ <button type="button" id="approveTake" disabled>Approve selected take</button>
+ <p class="small">Approval changes only session metadata. Previous audio files and correction notes are never overwritten.</p>
+</section>
+
+<section class="panel">
+ <h2>Direct a specific passage</h2>
+ <p class="small">Listen to the take, set an interval, and describe the change you want in English or Telugu.</p>
+ <div id="feedbackTime">
+  <label>Start (seconds)<input id="feedbackStart" type="number" min="0" step="0.01" value="0"></label>
+  <label>End (seconds)<input id="feedbackEnd" type="number" min="0" step="0.01" value="1"></label>
+ </div>
+ <div class="row">
+  <button class="secondary" type="button" id="startAtPlayhead">Start at playhead</button>
+  <button class="secondary" type="button" id="endAtPlayhead">End at playhead</button>
+ </div>
+ <label for="feedbackText">Correction instruction</label>
+ <textarea id="feedbackText" maxlength="300" placeholder="Example: At 5–6 seconds, keep the rising glide smoother."></textarea>
+ <button type="button" id="addFeedback">Save correction note</button>
+ <p class="note"><strong>Important:</strong> Corrections are saved for review only. This milestone does not yet interpret language or regenerate just the selected passage.</p>
+ <h3>Saved direction notes</h3><div id="feedbackList"></div>
+</section>
+
+<section class="panel">
+ <h2>Create another take</h2>
+ <p class="small">Renders the <strong>whole original phrase</strong> again using your selected authorized voice. It does not apply correction notes yet. A repeated conversion with the same settings can sound similar.</p>
+ <label for="renderVoice">Target voice</label>
+ <select id="renderVoice"><option value="">Loading voices…</option></select>
+ <div class="row"><input type="checkbox" id="renderAuthorized"><label for="renderAuthorized">I have permission to reuse this source and voice for a noncommercial rendering.</label></div>
+ <button type="button" id="renderAgain" disabled>Re-render full phrase as a new take</button>
+ <p class="small">No existing takes or approvals are replaced. At most 12 takes per session.</p>
+</section>
+</div>
+</main>
+<script>
+(() => {
+"use strict";
+const get=id=>document.getElementById(id);
+const sessionSelect=get("sessionSelect"),refreshSessions=get("refreshSessions"),status=get("status"),workspace=get("workspace");
+const originalPlayer=get("originalPlayer"),takePlayer=get("takePlayer"),takesList=get("takesList");
+const selectedHeading=get("selectedHeading"),sessionInfo=get("sessionInfo"),approveTake=get("approveTake");
+const feedbackStart=get("feedbackStart"),feedbackEnd=get("feedbackEnd"),feedbackText=get("feedbackText");
+const addFeedback=get("addFeedback"),feedbackList=get("feedbackList");
+const gainDb=get("gainDb"),gainText=get("gainText"),downloadTake=get("downloadTake");
+const renderAgain=get("renderAgain"),renderVoice=get("renderVoice"),renderAuthorized=get("renderAuthorized");
+let current=null,selectedTakeId=null,busy=false,audioContext=null,gainNode=null;
+const dir=id=>"/director/sessions/"+encodeURIComponent(id);
+const request=async (url,options)=>{
+ const res=await fetch(url,options);
+ if(!res.ok){let reason="Request failed (HTTP "+res.status+")";
+  try{const e=await res.json();if(typeof e.detail==="string")reason=e.detail;}catch{}
+  throw Error(reason);
+ }
+ return res.json();
+};
+const post=(url,body)=>request(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+function message(msg,error=false){status.textContent=msg;status.classList.toggle("error",error);}
+function busyState(next){busy=next;approveTake.disabled=busy||!current||current.approved_take_id===selectedTakeId;
+ addFeedback.disabled=busy||!selectedTakeId;renderAgain.disabled=busy||!current||!renderAuthorized.checked||!renderVoice.value;
+ refreshSessions.disabled=busy;sessionSelect.disabled=busy;}
+function printSeconds(n){return Number(n).toFixed(2)+"s";}
+function drawTakeList(){
+ takesList.replaceChildren();
+ for(const take of current.takes){
+  const row=document.createElement("div");row.className="take"+(take.id===selectedTakeId?" active":"");
+  const label=document.createElement("strong");label.textContent=take.label+" · "+take.voice_id;
+  row.append(label);
+  if(take.id===current.approved_take_id){
+   const badge=document.createElement("span");badge.className="pill";badge.textContent="Approved";row.append(" ",badge);
+  }
+  const listen=document.createElement("button");listen.type="button";listen.className="secondary";
+  listen.textContent=take.id===selectedTakeId?"Selected":"Select & listen";
+  listen.disabled=busy;
+  listen.addEventListener("click",()=>{selectTake(take.id);takePlayer.play().catch(()=>{});});
+  row.append(" ",listen);takesList.append(row);
+ }
+}
+function drawFeedback(){
+ feedbackList.replaceChildren();
+ const notes=current.feedback.filter(n=>n.take_id===selectedTakeId);
+ if(!notes.length){const p=document.createElement("p");p.className="small";p.textContent="No notes for this take yet.";feedbackList.append(p);return;}
+ for(const note of notes){
+  const row=document.createElement("div");row.className="feedback";
+  const text=document.createElement("span");text.textContent=printSeconds(note.start_seconds)+"–"+printSeconds(note.end_seconds)+" · "+note.instruction;
+  const seek=document.createElement("button");seek.type="button";seek.className="secondary";seek.textContent="Listen here";
+  seek.addEventListener("click",()=>{takePlayer.currentTime=note.start_seconds;takePlayer.play().catch(()=>{});});
+  row.append(text," ",seek);feedbackList.append(row);
+ }
+}
+function selectTake(takeId){
+ if(!current||!current.takes.some(t=>t.id===takeId))return;
+ selectedTakeId=takeId;
+ takePlayer.src=dir(current.id)+"/takes/"+encodeURIComponent(takeId)+".wav";
+ selectedHeading.textContent="Selected: "+current.takes.find(t=>t.id===takeId).label;
+ downloadTake.href=takePlayer.src;
+ downloadTake.download="ai-singer-"+takeId.slice(0,8)+".wav";
+ drawTakeList();drawFeedback();busyState(busy);
+}
+function renderSession(session,prefer){
+ current=session;workspace.classList.remove("hidden");
+ sessionInfo.textContent="Created "+session.created_at+" · "+printSeconds(session.duration_seconds)+" · "+session.takes.length+" take(s)";
+ originalPlayer.src=dir(session.id)+"/original";
+ const chosen=prefer&&session.takes.some(t=>t.id===prefer)?prefer:
+  (session.approved_take_id||session.takes[session.takes.length-1].id);
+ selectTake(chosen);
+ feedbackEnd.max=String(session.duration_seconds);feedbackStart.max=String(session.duration_seconds);
+ feedbackEnd.value=String(Math.min(1,session.duration_seconds));
+ message("Session loaded. Original and converted takes remain separate.");
+}
+async function loadSession(id,preferred){
+ if(!id){current=null;selectedTakeId=null;workspace.classList.add("hidden");return;}
+ try{
+  const data=await request(dir(id));
+  renderSession(data,preferred);
+ }catch(e){workspace.classList.add("hidden");message(String(e.message||e),true);}
+}
+async function loadSessions(choose){
+ try{
+  const data=await request("/director/sessions");
+  sessionSelect.replaceChildren();
+  const placeholder=document.createElement("option");placeholder.value="";placeholder.textContent="Choose a saved session";sessionSelect.append(placeholder);
+  for(const item of data.sessions){
+   const option=document.createElement("option");option.value=item.id;
+   option.textContent=item.created_at+" · "+item.voice_id+" · "+item.take_count+" take(s)";
+   sessionSelect.append(option);
+  }
+  const known=data.sessions.some(item=>item.id===choose);
+  const target=known?choose:(data.sessions[0]?.id||"");
+  sessionSelect.value=target;
+  if(target)await loadSession(target);
+  else{current=null;workspace.classList.add("hidden");message("No saved sessions. Render and save a preview in Voice Lab first.");}
+ }catch(e){message(String(e.message||e),true);}
+}
+sessionSelect.addEventListener("change",()=>loadSession(sessionSelect.value));
+refreshSessions.addEventListener("click",()=>loadSessions(current?.id));
+approveTake.addEventListener("click",async()=>{
+ if(!current||busy||!selectedTakeId)return;
+ busyState(true);
+ try{
+  const selected=selectedTakeId;
+  renderSession(await post(dir(current.id)+"/approve",{take_id:selected}),selected);
+  message("Approved take saved. Audio was not modified.");
+ }catch(e){message(String(e.message||e),true);}
+ finally{busyState(false);}
+});
+get("startAtPlayhead").addEventListener("click",()=>{feedbackStart.value=takePlayer.currentTime.toFixed(2);});
+get("endAtPlayhead").addEventListener("click",()=>{feedbackEnd.value=takePlayer.currentTime.toFixed(2);});
+addFeedback.addEventListener("click",async()=>{
+ if(!current||busy||!selectedTakeId)return;
+ const start=Number(feedbackStart.value),end=Number(feedbackEnd.value);
+ if(feedbackStart.value===""||feedbackEnd.value===""||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||end>current.duration_seconds){
+  message("Choose valid start and end times within the recording.",true);return;
+ }
+ if(!feedbackText.value.trim()){message("Write a correction instruction first.",true);return;}
+ busyState(true);
+ try{
+  await post(dir(current.id)+"/feedback",{take_id:selectedTakeId,start_seconds:start,end_seconds:end,instruction:feedbackText.value});
+  const selected=selectedTakeId;
+  renderSession(await request(dir(current.id)),selected);
+  feedbackText.value="";message("Correction note saved. It has not been applied to the audio.");
+ }catch(e){message(String(e.message||e),true);}
+ finally{busyState(false);}
+});
+renderAuthorized.addEventListener("change",()=>busyState(busy));
+renderVoice.addEventListener("change",()=>busyState(busy));
+renderAgain.addEventListener("click",async()=>{
+ if(!current||busy||!renderAuthorized.checked||!renderVoice.value)return;
+ busyState(true);message("Rendering a new full-phrase take locally…");
+ try{
+  const result=await post(dir(current.id)+"/render",{voice_id:renderVoice.value,authorized_use:true});
+  const newest=result.takes[result.takes.length-1].id;
+  renderSession(result,newest);
+  message("New full-phrase take saved. Review it before approving.");
+ }catch(e){message(String(e.message||e),true);}
+ finally{busyState(false);}
+});
+gainDb.addEventListener("input",()=>{
+ const db=Number(gainDb.value);gainText.textContent="+"+db+" dB";
+ try{
+  const AudioEngine=window.AudioContext||window.webkitAudioContext;
+  if(!AudioEngine){message("Your browser does not support audio amplification.",true);return;}
+  if(!audioContext){
+   audioContext=new AudioEngine();
+   gainNode=audioContext.createGain();
+   audioContext.createMediaElementSource(takePlayer).connect(gainNode);
+   gainNode.connect(audioContext.destination);
+  }
+  audioContext.resume();
+  gainNode.gain.value=Math.pow(10,db/20);
+ }catch(e){message("Unable to adjust playback gain: "+String(e.message||e),true);}
+});
+async function loadVoices(){
+ try{
+  const data=await request("/voices");
+  renderVoice.replaceChildren();
+  const initial=document.createElement("option");initial.value="";initial.textContent="Choose an authorized voice";renderVoice.append(initial);
+  for(const v of data.voices){
+   const opt=document.createElement("option");opt.value=v.id;opt.textContent=v.label+(v.ready?"":" (missing checkpoint)");
+   opt.disabled=!v.ready;renderVoice.append(opt);
+  }
+  busyState(busy);
+ }catch(e){message(String(e.message||e),true);}
+}
+window.addEventListener("beforeunload",()=>{if(audioContext)audioContext.close();});
+loadVoices();
+loadSessions(new URLSearchParams(window.location.search).get("session"));
+})();
+</script>
+</body></html>

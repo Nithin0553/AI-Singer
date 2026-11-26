@@ -22,7 +22,7 @@ input[type=checkbox]{width:18px;height:18px}audio{width:100%;margin:8px 0}.downl
 <body><main>
 <h1>AI Singer / Voice Lab</h1>
 <p>Convert a completed vocal phrase into an authorized target singing voice. Your melody and timing stay the source; results will depend on the voice model.</p>
-<p><a href="/pitch-lab">Back to Pitch Lab</a></p>
+<p><a href="/pitch-lab">Back to Pitch Lab</a> · <a href="/director">Director Mode — saved sessions</a></p>
 <section class="panel">
 <h2>1 · Choose your recording</h2>
 <label for="sourceFile">Solo vocal (WAV, M4A, MP3 or WebM; 1–15 seconds, up to 10 MB)</label>
@@ -40,6 +40,9 @@ input[type=checkbox]{width:18px;height:18px}audio{width:100%;margin:8px 0}.downl
 <label for="converted">Converted voice preview</label><audio id="converted" controls preload="metadata"></audio>
 <a id="download" class="download" href="#" download="ai-singer-voice-preview.wav">Download WAV</a>
 <p class="helper">Listen for melody continuity, consonants and timing. This is a conversion preview, not a trained musical director or independently verified fidelity result.</p>
+<div class="row"><button id="saveDirector" type="button" disabled>Save as Director session</button>
+<a id="directorLink" class="download hidden" href="/director">Open saved session</a></div>
+<p class="helper">Saving is optional. It stores the original and converted WAV as separate, immutable takes on your configured external drive. An unsaved preview stays temporary.</p>
 </section>
 </main>
 <script>
@@ -49,10 +52,14 @@ const el = id => document.getElementById(id);
 const sourceFile=el("sourceFile"),voice=el("voice"),authorized=el("authorized"),render=el("render");
 const status=el("status"),original=el("original"),converted=el("converted"),download=el("download");
 const originalSection=el("originalSection"),resultSection=el("resultSection"),voiceHelp=el("voiceHelp");
-let srcURL=null, previewURL=null, loading=false;
+const saveDirector=el("saveDirector"),directorLink=el("directorLink");
+let srcURL=null, previewURL=null, loading=false, saving=false, previewBlob=null;
 function statusText(message,error=false){status.textContent=message;status.classList.toggle("error",error);}
-function resetPreview(){if(previewURL){URL.revokeObjectURL(previewURL);previewURL=null;}converted.removeAttribute("src");resultSection.classList.add("hidden");}
-function refresh(){render.disabled=loading||!sourceFile.files?.length||!voice.value||!authorized.checked||voice.selectedOptions[0]?.disabled;}
+function resetPreview(){if(previewURL){URL.revokeObjectURL(previewURL);previewURL=null;}previewBlob=null;
+  saveDirector.textContent="Save as Director session";saveDirector.disabled=true;directorLink.classList.add("hidden");
+  converted.removeAttribute("src");resultSection.classList.add("hidden");}
+function refresh(){render.disabled=loading||saving||!sourceFile.files?.length||!voice.value||!authorized.checked||voice.selectedOptions[0]?.disabled;
+  saveDirector.disabled=saving||!previewBlob||!sourceFile.files?.length||!authorized.checked;}
 sourceFile.addEventListener("change",()=>{
   if(srcURL)URL.revokeObjectURL(srcURL);srcURL=null;
   resetPreview();const file=sourceFile.files?.[0];
@@ -86,10 +93,31 @@ render.addEventListener("click",async()=>{
   }
   const blob=await response.blob();
   if(!blob.size)throw Error("Voice renderer returned empty audio.");
-  previewURL=URL.createObjectURL(blob);converted.src=previewURL;download.href=previewURL;
+  previewBlob=blob;previewURL=URL.createObjectURL(blob);converted.src=previewURL;download.href=previewURL;
   resultSection.classList.remove("hidden");statusText("Preview ready. Compare it with the original.");
  }catch(error){statusText(String(error.message||error),true);}
  finally{loading=false;refresh();}
+});
+saveDirector.addEventListener("click",async()=>{
+ if(saveDirector.disabled||!previewBlob)return;
+ saving=true;refresh();statusText("Saving the original and this take on the external drive…");
+ try{
+   const form=new FormData();
+   form.append("source",sourceFile.files[0]);
+   form.append("preview",previewBlob,"converted.wav");
+   form.append("voice_id",voice.value);
+   form.append("authorized_use","true");
+   const response=await fetch("/director/sessions",{method:"POST",body:form});
+   if(!response.ok){const e=await response.json();throw Error(e.detail||"Could not save session.");}
+   const session=await response.json();
+   directorLink.href="/director?session="+encodeURIComponent(session.id);
+   directorLink.classList.remove("hidden");
+   statusText("Session saved on Dimpu. Original and take are preserved separately.");
+   saveDirector.textContent="Session saved";
+   saveDirector.disabled=true;
+   previewBlob=null;  // Require a fresh render for any new save.
+ }catch(e){statusText(String(e.message||e),true);}
+ finally{saving=false;refresh();}
 });
 window.addEventListener("beforeunload",()=>{if(srcURL)URL.revokeObjectURL(srcURL);if(previewURL)URL.revokeObjectURL(previewURL);});
 loadVoices();

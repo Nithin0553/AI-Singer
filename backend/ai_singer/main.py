@@ -7,6 +7,11 @@ from pathlib import Path
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 
+from ai_singer.director_sessions import (
+    DirectorInputError, DirectorLimitError, add_feedback, approve_take,
+    create_session, get_session, list_sessions, original_audio,
+    render_next_take, take_audio,
+)
 from ai_singer.audio_analysis import (
     MAX_UPLOAD_BYTES,
     AudioDecoderUnavailable,
@@ -129,3 +134,128 @@ def render_voice_preview(
         raise HTTPException(status_code=502, detail=str(error)) from error
     finally:
         file.file.close()
+
+
+@app.get("/director", include_in_schema=False)
+def director_page() -> FileResponse:
+    """Local Director Mode take and feedback interface."""
+    return FileResponse(Path(__file__).parent / "static" / "director.html", media_type="text/html")
+
+
+@app.get("/director/sessions")
+def director_list() -> dict:
+    try:
+        return {"sessions": list_sessions()}
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/director/sessions", status_code=201)
+def director_save(
+    source: UploadFile = File(...),
+    preview: UploadFile = File(...),
+    voice_id: str = Form(...),
+    authorized_use: bool = Form(False),
+) -> dict:
+    """Persist only after the user explicitly saves the session."""
+    from ai_singer.voice_render import VoiceConfigurationError
+    try:
+        if not authorized_use:
+            raise HTTPException(status_code=403, detail="Confirm permission to save the original and voice model.")
+        original_bytes = source.file.read(MAX_UPLOAD_BYTES + 1)
+        preview_bytes = preview.file.read(25 * 1024 * 1024 + 1)
+        return create_session(original_bytes, preview_bytes, voice_id, authorized=True)
+    except AudioInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (AudioDecoderUnavailable, StorageConfigurationError, VoiceConfigurationError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorLimitError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        source.file.close()
+        preview.file.close()
+
+
+@app.get("/director/sessions/{session_id}")
+def director_session(session_id: str) -> dict:
+    try:
+        return get_session(session_id)
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/director/sessions/{session_id}/original")
+def director_original(session_id: str) -> FileResponse:
+    try:
+        saved_path, media_type = original_audio(session_id)
+        return FileResponse(saved_path, media_type=media_type,
+                            headers={"Cache-Control": "no-store"})
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/director/sessions/{session_id}/takes/{take_id}.wav")
+def director_take(session_id: str, take_id: str) -> FileResponse:
+    try:
+        return FileResponse(take_audio(session_id, take_id), media_type="audio/wav",
+                            headers={"Cache-Control": "no-store"})
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/director/sessions/{session_id}/approve")
+def director_approve(session_id: str, payload: dict = Body(...)) -> dict:
+    try:
+        return approve_take(session_id, payload.get("take_id"))
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/director/sessions/{session_id}/feedback", status_code=201)
+def director_feedback(session_id: str, payload: dict = Body(...)) -> dict:
+    try:
+        return add_feedback(session_id, payload.get("take_id"),
+                            payload.get("start_seconds"), payload.get("end_seconds"),
+                            payload.get("instruction"))
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorLimitError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/director/sessions/{session_id}/render")
+def director_render(session_id: str, payload: dict = Body(...)) -> dict:
+    """Render a new full-phrase take, not an automated region edit."""
+    from ai_singer.voice_render import (
+        VoiceBusyError, VoiceConfigurationError, VoiceRenderError,
+    )
+    try:
+        if payload.get("authorized_use") is not True:
+            raise HTTPException(status_code=403, detail="Confirm permission to use the original and target voice.")
+        return render_next_take(session_id, payload.get("voice_id"), authorized=True)
+    except AudioInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (AudioDecoderUnavailable, StorageConfigurationError, VoiceConfigurationError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except VoiceBusyError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except VoiceRenderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except DirectorLimitError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DirectorInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
