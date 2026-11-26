@@ -73,3 +73,65 @@ The installer uses only Python's standard library, streams from the known publis
 
 **Important:** This only prepares the approved demo checkpoint. `voice_lab_ready: true` means the **profile and model file** are configured, *not* that a separate RVC inference runtime, HuBERT, ContentVec and RMVPE files are installed or tested. Set up the RVC CLI using the instructions above, and verify its `infer/cli.py --help` arguments before launching Voice Lab. RVC `.pth` loading may execute unsafe serialized code; checksum verification does **not** make external model execution safe. Keep this model restricted to a noncommercial, credited and clearly AI-labeled local prototype.
 
+## Verified next step: RVC runtime for Windows RTX 3050 Ti
+
+As of 2026-11-26, the user's model check confirms Shadowww T02 has a verified checksum and is registered in Voice Lab. The same check reports rvc_runtime_installed = not_checked. That field is not an RVC runtime test; installing this checkpoint is distinct from configuring the third-party RVC engine.
+
+Official upstream sources reviewed: https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI/blob/main/docs/en/README.en.md and https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI/blob/main/docs/en/cli.md. RVC source main was 81eed5e8f68b6bed1789f682fe78cdd324495afc. Its CLI supports our adapter flags. For Windows / Python 3.12 / pre-RTX-50 NVIDIA GPUs, it specifies Torch 2.7.1+cu118 and the literally named file requirments_cu118_py312.txt.
+
+### Create a dedicated RVC environment on Dimpu
+
+~~~powershell
+cd C:\Users\nithi\AI-Singer
+.\scripts\Initialize-Storage.ps1 -VolumeLabel 'Dimpu'
+$rvc = Join-Path $env:AI_SINGER_STORAGE_ROOT 'runtime\rvc'
+New-Item -ItemType Directory -Force (Split-Path $rvc) | Out-Null
+
+if (-not (Test-Path (Join-Path $rvc 'infer\cli.py'))) {
+    if (Test-Path $rvc) { throw "RVC folder exists without infer\cli.py; inspect it first." }
+    git clone https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI.git $rvc
+}
+Set-Location $rvc
+if (-not (Test-Path '.venv\Scripts\python.exe')) { py -3.12 -m venv .venv }
+$py = Join-Path $rvc '.venv\Scripts\python.exe'
+& $py --version
+& $py -m pip install --upgrade pip wheel
+~~~
+
+### Install the official NVIDIA dependencies and verify CUDA
+
+~~~powershell
+& $py -m pip install 'torch==2.7.1+cu118' 'torchaudio==2.7.1+cu118' --index-url https://download.pytorch.org/whl/cu118 --extra-index-url https://pypi.org/simple
+& $py -m pip install -r .\requirments_cu118_py312.txt
+& $py -c "import torch; print(torch.__version__); print('CUDA:',torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+~~~
+
+The upstream requirements file explicitly points to a third-party PyPI mirror. Review it before installing, or change only its package-index URLs to the official indexes following the upstream README. RVC and other model dependencies execute third-party software.
+
+### Download official assets needed for inference
+
+~~~powershell
+& $py -m pip install 'huggingface_hub>=0.34,<1'
+$hf = Join-Path $rvc '.venv\Scripts\hf.exe'
+& $hf download lj1995/VoiceConversionWebUI --revision main --include 'hubert_base/*' --local-dir assets
+& $hf download lj1995/VoiceConversionWebUI rmvpe.pt --revision main --local-dir assets/rmvpe
+
+Test-Path '.\assets\hubert_base\config.json'
+Test-Path '.\assets\hubert_base\preprocessor_config.json'
+Test-Path '.\assets\hubert_base\pytorch_model.bin'
+Test-Path '.\assets\rmvpe\rmvpe.pt'
+& $py .\infer\cli.py --help
+~~~
+
+The four checks must print True. These RVC HuBERT/ContentVec and RMVPE files are separate from AI Singer's ONNX pitch model. Training-only pretrained checkpoints, mute.zip and index files are unnecessary for our first index-rate 0 conversion.
+
+### Connect RVC to Voice Lab
+
+~~~powershell
+$env:AI_SINGER_RVC_ROOT = $rvc
+$env:AI_SINGER_RVC_PYTHON = $py
+cd C:\Users\nithi\AI-Singer\backend
+.\.venv\Scripts\python -m uvicorn ai_singer.main:app --reload
+~~~
+
+Then open http://127.0.0.1:8000/voice-lab and try a permitted original vocal with Shadowww T02. On the first run, a 4-GiB GPU may encounter memory constraints; voice quality and compatibility remain unverified until a real output is rendered and listened to. The local model checker will continue to say not_checked for the RVC runtime even after the runtime is installed because it intentionally only checks the voice checkpoint and manifest.
