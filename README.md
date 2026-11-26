@@ -2,7 +2,7 @@
 
 AI Singer is a planned interactive AI singing studio in which a music director sings a melody, waits for the AI to listen and analyze it, then hears it reproduced by a selectable male or female AI singing voice. The director can correct sections or request optional creative alternatives.
 
-**Current status:** YIN/RMVPE Pitch Lab and a working local RVC voice-conversion preview. A genuine first neural WAV was successfully generated on the user's Windows RTX 3050 Ti with an authorized noncommercial Shadowww T02 voice. **Director Mode Milestone 1** adds optional external-drive session/take persistence, approval and timed feedback notes; Windows acceptance is pending. Automated targeted revisions, language-aware music direction, training and full React studio are not yet implemented.
+**Current status:** YIN/RMVPE Pitch Lab and a proven RVC voice-conversion preview (user-confirmed Windows RTX 3050 Ti, noncommercial Shadowww T02). **Director Mode Milestone 1** — saved original/take history, approval and timed notes — is working on the user's laptop. **Milestone 2** adds explicit passage-limited *DSP* pitch and loudness edits with candidate takes; full Windows acceptance remains pending. Telugu/English instruction interpretation, expressive neural partial re-synthesis, training, and a full React studio are not yet implemented.
 
 ## Intended experience
 
@@ -236,3 +236,9 @@ A safe, optional, checksum-verifying installation command is documented in [Voic
 Director Mode lets you open a saved session, listen to original and converted takes, adjust playback-only gain (+0 to +9 dB), approve a selected take, add Telugu/English time-range feedback notes, and generate another **full-phrase** RVC take from the saved original without overwriting prior work. Correction notes are **not interpreted or applied automatically yet**. Saved audio persists until the user deliberately removes it; ordinary Voice Lab previews remain ephemeral. This is an opt-in localhost, single-user workflow.
 
 Read [Director Mode behavior, data safety and acceptance steps](docs/director-mode.md). New tests: `backend/tests/test_director_sessions.py`. Windows acceptance of this milestone is pending; the earlier successful RVC preview is already confirmed.
+
+## Director Mode — bounded passage edits (Milestone 2)
+
+Director Mode now offers **Apply a bounded passage correction** for a selected existing take: choose start/end times, **pitch shift −3 to +3 semitones** (0.35–8-second passage) or **gain −9 to +9 dB** (≥0.35-second passage), then create a **new unapproved candidate take**. The backend preserves sample values outside the selected time range, blends only within the region's edges (45-ms raised-cosine transitions), and stores the new take's parent ID and edit recipe. Your original, selected source and previously approved take are never overwritten.
+
+Saved feedback notes have a **Use this interval** shortcut, but their Telugu/English text is **not yet interpreted automatically**. These are DSP audio manipulations—not note-aware singing synthesis or an autonomous singing correction agent. Pitch changes can affect formants or cause artifacts; gain can clip, so listen before approving. See [Passage correction setup and engineering limits](docs/passage-corrections.md). Targeted backend tests and full Windows acceptance are pending; the standalone DSP unit suite passed 18 isolated tests.

@@ -9,9 +9,10 @@ from fastapi.responses import FileResponse, Response
 
 from ai_singer.director_sessions import (
     DirectorInputError, DirectorLimitError, add_feedback, approve_take,
-    create_session, get_session, list_sessions, original_audio,
+    create_session, edit_take, get_session, list_sessions, original_audio,
     render_next_take, take_audio,
 )
+from ai_singer.passage_edits import PassageEditError
 from ai_singer.audio_analysis import (
     MAX_UPLOAD_BYTES,
     AudioDecoderUnavailable,
@@ -258,4 +259,21 @@ def director_render(session_id: str, payload: dict = Body(...)) -> dict:
     except DirectorLimitError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except DirectorInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/director/sessions/{session_id}/edit", status_code=201)
+def director_edit(session_id: str, payload: dict = Body(...)) -> dict:
+    """Apply explicit bounded DSP pitch/gain to a selected take, saving a candidate."""
+    try:
+        return edit_take(
+            session_id, payload.get("take_id"), payload.get("start_seconds"),
+            payload.get("end_seconds"), payload.get("operation"),
+            payload.get("value"),
+        )
+    except StorageConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except DirectorLimitError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (DirectorInputError, PassageEditError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

@@ -20,6 +20,7 @@ from uuid import uuid4
 import wave
 
 from ai_singer.audio_analysis import decode_audio
+from ai_singer.passage_edits import PassageEditError, edit_passage
 from ai_singer.storage import configured_storage_root
 from ai_singer.voice_render import MAX_OUTPUT_BYTES, _pcm_wav, _select_profile, render_voice
 
@@ -305,3 +306,64 @@ def render_next_take(session_id: str, voice_id: str, *, authorized: bool) -> dic
         finally:
             temporary.unlink(missing_ok=True)
         return current
+
+
+def edit_take(
+    session_id: str, take_id: str, start_seconds: float, end_seconds: float,
+    operation: str, value: float,
+) -> dict:
+    """Apply an explicitly selected DSP operation; append a new, unapproved take.
+
+    Text feedback is NOT interpreted or executed here. The director chooses
+    both the region and numeric adjustment. Originals/approved takes stay
+    immutable and unaffected segments remain sample-exact.
+    """
+    with _LOCK:
+        current = _read(session_id)
+        if not isinstance(take_id, str) or not _ID.fullmatch(take_id):
+            raise DirectorInputError("Take not found.")
+        selected = next((t for t in current["takes"] if t["id"] == take_id), None)
+        if selected is None:
+            raise DirectorInputError("Take not found.")
+        if len(current["takes"]) >= MAX_TAKES:
+            raise DirectorLimitError("This session holds at most 12 takes.")
+        source = _audio_file(session_id, f"take_{take_id}.wav").read_bytes()
+        # Avoid editing portions beyond the original performance even if a
+        # prior RVC output includes some extra tail silence.
+        if (isinstance(end_seconds, bool) or not isinstance(end_seconds, (float, int))
+                or not math.isfinite(end_seconds)
+                or end_seconds > float(current["duration_seconds"])):
+            raise DirectorInputError("Edit interval exceeds the original performance.")
+
+    # CPU DSP can take time. Do not block readers/approvals while it runs.
+    candidate, details = edit_passage(
+        source, start_seconds=start_seconds, end_seconds=end_seconds,
+        operation=operation, value=value,
+    )
+    with _LOCK:
+        latest = _read(session_id)
+        if len(latest["takes"]) >= MAX_TAKES:
+            raise DirectorLimitError("This session holds at most 12 takes.")
+        if not any(t["id"] == take_id for t in latest["takes"]):
+            raise DirectorInputError("Source take no longer exists.")
+        new_id = uuid4().hex
+        target = _path(session_id) / f"take_{new_id}.wav"
+        temporary = target.with_suffix(".part")
+        n = len(latest["takes"]) + 1
+        unit = "st" if operation == "pitch" else "dB"
+        label = f"Take {n} · {operation} {details['value']:+g} {unit}"
+        try:
+            temporary.write_bytes(candidate)
+            os.replace(temporary, target)
+            latest["takes"].append({
+                "id": new_id, "voice_id": selected["voice_id"],
+                "created_at": _now(), "label": label,
+                "source_take_id": take_id, "edit": details,
+            })
+            _atomic_json(_path(session_id) / "session.json", latest)
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+        finally:
+            temporary.unlink(missing_ok=True)
+        return latest

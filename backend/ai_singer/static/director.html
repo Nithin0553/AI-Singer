@@ -82,6 +82,27 @@ audio{display:block;width:100%;margin-top:8px}.take{border:1px solid #d7e2eb;pad
 </section>
 
 <section class="panel">
+ <h2>Apply a bounded passage correction</h2>
+ <p>Choose an existing converted take, set the <strong>start/end times above</strong>, then select an explicit audio operation. Only this passage changes; the rest of the recording is sample-identical.</p>
+ <div class="columns">
+  <label for="editOperation">Adjustment
+   <select id="editOperation">
+    <option value="pitch">Pitch — shift sung audio (semitones)</option>
+    <option value="gain">Loudness — adjust passage (dB)</option>
+   </select>
+  </label>
+  <label for="editValue"><span id="editValueLabel">Pitch shift (−3 to +3 semitones)</span>
+   <input id="editValue" type="number" min="-3" max="3" step="0.5" value="1">
+  </label>
+ </div>
+ <div class="row">
+  <button type="button" id="applyPassageEdit" disabled>Create candidate take</button>
+  <span class="small">Current source: <strong id="editSourceTake">No take selected</strong></span>
+ </div>
+ <p class="note"><strong>Precise but limited:</strong> Pitch shifting transposes the selected audio; it does not understand lyrics, vibrato instructions, or regenerate singing. A short internal crossfade (45 ms) blends the boundaries. The original, approved take and audio outside your selection remain unchanged. Review the new candidate before approving.</p>
+</section>
+
+<section class="panel">
  <h2>Create another take</h2>
  <p class="small">Renders the <strong>whole original phrase</strong> again using your selected authorized voice. It does not apply correction notes yet. A repeated conversion with the same settings can sound similar.</p>
  <label for="renderVoice">Target voice</label>
@@ -103,6 +124,8 @@ const feedbackStart=get("feedbackStart"),feedbackEnd=get("feedbackEnd"),feedback
 const addFeedback=get("addFeedback"),feedbackList=get("feedbackList");
 const gainDb=get("gainDb"),gainText=get("gainText"),downloadTake=get("downloadTake");
 const renderAgain=get("renderAgain"),renderVoice=get("renderVoice"),renderAuthorized=get("renderAuthorized");
+const editOperation=get("editOperation"),editValue=get("editValue"),editValueLabel=get("editValueLabel");
+const applyPassageEdit=get("applyPassageEdit"),editSourceTake=get("editSourceTake");
 let current=null,selectedTakeId=null,busy=false,audioContext=null,gainNode=null;
 const dir=id=>"/director/sessions/"+encodeURIComponent(id);
 const request=async (url,options)=>{
@@ -116,7 +139,9 @@ const request=async (url,options)=>{
 const post=(url,body)=>request(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
 function message(msg,error=false){status.textContent=msg;status.classList.toggle("error",error);}
 function busyState(next){busy=next;approveTake.disabled=busy||!current||current.approved_take_id===selectedTakeId;
- addFeedback.disabled=busy||!selectedTakeId;renderAgain.disabled=busy||!current||!renderAuthorized.checked||!renderVoice.value;
+ addFeedback.disabled=busy||!selectedTakeId;
+ applyPassageEdit.disabled=busy||!current||!selectedTakeId||current.takes.length>=12;
+ renderAgain.disabled=busy||!current||!renderAuthorized.checked||!renderVoice.value;
  refreshSessions.disabled=busy;sessionSelect.disabled=busy;}
 function printSeconds(n){return Number(n).toFixed(2)+"s";}
 function drawTakeList(){
@@ -132,6 +157,11 @@ function drawTakeList(){
   listen.textContent=take.id===selectedTakeId?"Selected":"Select & listen";
   listen.disabled=busy;
   listen.addEventListener("click",()=>{selectTake(take.id);takePlayer.play().catch(()=>{});});
+  if(take.edit){
+   const detail=document.createElement("span");detail.className="small";
+   detail.textContent=" · Passage "+take.edit.start_seconds.toFixed(2)+"–"+take.edit.end_seconds.toFixed(2)+"s";
+   row.append(detail);
+  }
   row.append(" ",listen);takesList.append(row);
  }
 }
@@ -144,7 +174,13 @@ function drawFeedback(){
   const text=document.createElement("span");text.textContent=printSeconds(note.start_seconds)+"–"+printSeconds(note.end_seconds)+" · "+note.instruction;
   const seek=document.createElement("button");seek.type="button";seek.className="secondary";seek.textContent="Listen here";
   seek.addEventListener("click",()=>{takePlayer.currentTime=note.start_seconds;takePlayer.play().catch(()=>{});});
-  row.append(text," ",seek);feedbackList.append(row);
+  const use=document.createElement("button");use.type="button";use.className="secondary";use.textContent="Use this interval";
+  use.addEventListener("click",()=>{
+   feedbackStart.value=String(note.start_seconds);
+   feedbackEnd.value=String(note.end_seconds);
+   message("Time range selected. Choose a supported numeric edit; the note itself is not interpreted by AI.");
+  });
+  row.append(text," ",seek," ",use);feedbackList.append(row);
  }
 }
 function selectTake(takeId){
@@ -152,6 +188,7 @@ function selectTake(takeId){
  selectedTakeId=takeId;
  takePlayer.src=dir(current.id)+"/takes/"+encodeURIComponent(takeId)+".wav";
  selectedHeading.textContent="Selected: "+current.takes.find(t=>t.id===takeId).label;
+ editSourceTake.textContent=current.takes.find(t=>t.id===takeId).label;
  downloadTake.href=takePlayer.src;
  downloadTake.download="ai-singer-"+takeId.slice(0,8)+".wav";
  drawTakeList();drawFeedback();busyState(busy);
@@ -218,6 +255,37 @@ addFeedback.addEventListener("click",async()=>{
   const selected=selectedTakeId;
   renderSession(await request(dir(current.id)),selected);
   feedbackText.value="";message("Correction note saved. It has not been applied to the audio.");
+ }catch(e){message(String(e.message||e),true);}
+ finally{busyState(false);}
+});
+editOperation.addEventListener("change",()=>{
+ if(editOperation.value==="pitch"){
+  editValueLabel.textContent="Pitch shift (−3 to +3 semitones)";
+  editValue.min="-3";editValue.max="3";editValue.step="0.5";editValue.value="1";
+ }else{
+  editValueLabel.textContent="Gain (−9 to +9 dB)";
+  editValue.min="-9";editValue.max="9";editValue.step="1";editValue.value="3";
+ }
+});
+applyPassageEdit.addEventListener("click",async()=>{
+ if(!current||busy||!selectedTakeId)return;
+ const from=Number(feedbackStart.value),to=Number(feedbackEnd.value),amount=Number(editValue.value);
+ const max=Math.abs(editOperation.value==="pitch"?3:9);
+ if(feedbackStart.value===""||feedbackEnd.value===""||editValue.value===""||
+    !Number.isFinite(from)||!Number.isFinite(to)||!Number.isFinite(amount)||
+    from<0||to>current.duration_seconds||to-from<0.35||
+    amount===0||Math.abs(amount)>max||(editOperation.value==="pitch"&&to-from>8)){
+  message("Choose a passage of at least 0.35s and a valid non-zero pitch/gain adjustment.",true);return;
+ }
+ busyState(true);message("Creating a bounded correction; preserving the rest of the take…");
+ try{
+  const result=await post(dir(current.id)+"/edit",{
+   take_id:selectedTakeId,start_seconds:from,end_seconds:to,
+   operation:editOperation.value,value:amount,
+  });
+  renderSession(result,result.takes[result.takes.length-1].id);
+  feedbackStart.value=String(from);feedbackEnd.value=String(to);
+  message("Edited candidate saved. Listen and approve only if the change sounds right.");
  }catch(e){message(String(e.message||e),true);}
  finally{busyState(false);}
 });

@@ -238,3 +238,84 @@ def test_preserves_exact_uploaded_m4a_bytes_when_available(setup):
     assert read.status_code == 200
     assert read.content == encoded
     assert read.headers["content-type"].startswith("audio/mp4")
+
+
+def test_passage_edit_creates_unapproved_take_and_preserves_original(setup):
+    root, client = setup
+    first = save(client).json()
+    sid, tid = first["id"], first["takes"][0]["id"]
+    assert client.post(f"/director/sessions/{sid}/approve",
+                       json={"take_id": tid}).status_code == 200
+    original_before = client.get(f"/director/sessions/{sid}/original").content
+    parent = client.get(f"/director/sessions/{sid}/takes/{tid}.wav").content
+    response = client.post(f"/director/sessions/{sid}/edit", json={
+        "take_id": tid, "start_seconds": 0.5, "end_seconds": 1.5,
+        "operation": "gain", "value": 6,
+    })
+    assert response.status_code == 201, response.text
+    session = response.json()
+    assert len(session["takes"]) == 2
+    assert session["approved_take_id"] == tid
+    assert session["takes"][1]["source_take_id"] == tid
+    assert session["takes"][1]["edit"]["operation"] == "gain"
+    assert session["takes"][1]["edit"]["fade_ms"] == 45
+    new_id = session["takes"][1]["id"]
+    child = client.get(f"/director/sessions/{sid}/takes/{new_id}.wav").content
+    assert client.get(f"/director/sessions/{sid}/takes/{tid}.wav").content == parent
+    assert client.get(f"/director/sessions/{sid}/original").content == original_before
+    def samples(wav_data):
+        with wave.open(BytesIO(wav_data)) as w:
+            return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").copy(), w.getframerate()
+    a, rate = samples(parent)
+    b, rate2 = samples(child)
+    assert rate == rate2 == 48000
+    assert np.array_equal(a[:int(0.5 * rate)], b[:int(0.5 * rate)])
+    assert np.array_equal(a[int(1.5 * rate):], b[int(1.5 * rate):])
+    assert np.any(a[int(0.65 * rate):int(1.35 * rate)] !=
+                  b[int(0.65 * rate):int(1.35 * rate)])
+    assert len(list((root / "outputs" / "director_sessions" / sid).glob("take_*.wav"))) == 2
+
+
+@pytest.mark.parametrize("change", [
+    {"value": 0}, {"value": 10}, {"operation": "autonomous_singing"},
+    {"end_seconds": 4.0}, {"start_seconds": -1},
+    {"start_seconds": 0.9, "end_seconds": 1.0}, {"value": "louder"},
+    {"take_id": "f" * 32}, {"start_seconds": None},
+], ids=["zero","excessive","unsupported","out-of-range","negative",
+        "too-short","text-value","unknown-take","missing-start"])
+def test_invalid_passage_edit_never_creates_audio(setup, change):
+    root, client = setup
+    saved = save(client).json()
+    sid, tid = saved["id"], saved["takes"][0]["id"]
+    payload = {
+        "take_id": tid, "start_seconds": 0.5, "end_seconds": 1.5,
+        "operation": "gain", "value": 5,
+    }
+    payload.update(change)
+    response = client.post(f"/director/sessions/{sid}/edit", json=payload)
+    assert response.status_code == 422, response.text
+    assert len(client.get(f"/director/sessions/{sid}").json()["takes"]) == 1
+    assert len(list((root / "outputs" / "director_sessions" / sid).glob("take_*.wav"))) == 1
+
+
+def test_passage_edit_cap_and_atomic_rollback(setup, monkeypatch):
+    root, client = setup
+    first = save(client).json()
+    sid, tid = first["id"], first["takes"][0]["id"]
+    payload = {
+        "take_id": tid, "start_seconds": 0.5, "end_seconds": 1.5,
+        "operation": "gain", "value": -4,
+    }
+    monkeypatch.setattr(director, "MAX_TAKES", 1)
+    blocked = client.post(f"/director/sessions/{sid}/edit", json=payload)
+    assert blocked.status_code == 409
+    monkeypatch.setattr(director, "MAX_TAKES", 12)
+    before = client.get(f"/director/sessions/{sid}").json()
+    with monkeypatch.context() as m:
+        m.setattr(director, "_atomic_json",
+                  lambda *a, **k: (_ for _ in ()).throw(OSError("forced failure")))
+        with pytest.raises(OSError, match="forced failure"):
+            director.edit_take(sid, tid, 0.5, 1.5, "gain", -4)
+    after = client.get(f"/director/sessions/{sid}").json()
+    assert before == after
+    assert len(list((root / "outputs" / "director_sessions" / sid).glob("take_*.wav"))) == 1

@@ -59,3 +59,9 @@ cd backend
 Ensure AI_SINGER_RVC_ROOT and AI_SINGER_RVC_PYTHON still point to the reviewed working RVC environment **in the same PowerShell session**. The first RVC neural conversion succeeded previously; **new Director Mode behavior and its full Windows tests are not yet user-verified**.
 
 **Next milestone:** region-boundary-safe targeted regeneration and AI/director feedback understanding. Current notes are review metadata, not automatic musical instructions to the synthesis model.
+
+## Milestone 2 — explicit passage corrections
+
+A separate, supported **Apply a bounded passage correction** section is now available in Director Mode. Select a saved take and start/end time, choose a pitch shift in semitones or volume adjustment in dB, and click **Create candidate take**. Only audio within the region is modified, with a short 45-ms internal crossfade; the original audio, prior takes, approval pointer and samples outside the selected interval are preserved. New takes record their source-take ID and numeric edit recipe.
+
+Saved feedback notes offer a **Use this interval** shortcut to fill the time fields, but the program does **not** parse the instruction text or perform a new neural singing interpretation. See [Passage corrections](passage-corrections.md) for numeric limits, endpoint, tests and caveats. This milestone is code-implemented and DSP-tested; full Windows/browser testing remains pending.
